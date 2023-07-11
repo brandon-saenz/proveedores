@@ -1448,7 +1448,7 @@ EOF;
 		$datosVista = [];
 
 		$sth = $this->_db->prepare("
-			SELECT rp.id, rp.id_requisicion, CONCAT(e.nombre, ' ', e.apellidos) AS solicita, d.nombre AS departamento, rp.producto, rp.tipo, rp.cantidad, rp.um, DATE(rp.fecha_creacion) AS fecha_creacion, DATE(rp.fecha_procesa) AS fecha_procesa, CONCAT(es.nombre, ' ', es.apellidos) AS autoriza, rp.fecha_autorizacion, rp.dias_entrega, rp.oc, rp.archivo_pdf, rp.archivo_xml, rp.subtotal, rp.iva, rp.total, rp.tipo_cambio, rp.moneda, rp.fecha_carga
+			SELECT rp.id, rp.id_requisicion, CONCAT(e.nombre, ' ', e.apellidos) AS solicita, d.nombre AS departamento, rp.producto, rp.tipo, rp.cantidad, rp.um, DATE(rp.fecha_creacion) AS fecha_creacion, DATE(rp.fecha_procesa) AS fecha_procesa, CONCAT(es.nombre, ' ', es.apellidos) AS autoriza, rp.fecha_autorizacion, rp.dias_entrega, rp.oc, rp.archivo_pdf, rp.archivo_xml, rp.subtotal, rp.iva, rp.total, rp.moneda
 			FROM requisiciones_partes rp
 			JOIN departamentos d
 			ON d.id = rp.id_departamento
