@@ -1,0 +1,68 @@
+
+.pointer{cursor: pointer;}
+
+.hfit{height: fit-content !important;}
+
+.pblock-1{
+    padding-block: 1rem !important;
+}
+
+.pblock-2{
+    padding-block: 2rem !important;
+}
+
+.pblock-3{
+    padding-block: 3rem !important;
+}
+
+.mblock-1{
+    margin-block: 1rem !important;
+}
+
+.mblock-2{
+    margin-block: 2rem !important;
+}
+
+.mblock-3{
+    margin-block: 3rem !important;
+}
+
+.mtop-1{
+    margin-top: 1rem !important;
+}
+
+.mtop-2{
+    margin-top: 2rem !important;
+}
+
+.mtop-3{
+    margin-top: 3rem !important;
+}
+
+.mtop-4{
+    margin-top: 4rem !important;
+}
+
+.mtop-5{
+    margin-top: 5rem !important;
+}
+
+.mbottom-1{
+    margin-bottom: 1rem !important;
+}
+
+.mbottom-2{
+    margin-bottom: 2rem !important;
+}
+
+.mbottom-3{
+    margin-bottom: 3rem !important;
+}
+
+.mbottom-4{
+    margin-bottom: 4rem !important;
+}
+
+.mbottom-5{
+    margin-bottom: 5rem !important;
+}

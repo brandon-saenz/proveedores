@@ -1,0 +1,786 @@
+.checkbox-nocursor:hover {
+  cursor: default;
+}
+.text-striked {
+  text-decoration: line-through;
+}
+.form-disabled {
+  background-color: #F3F6F9 !important;
+}
+.principal-cards:hover {
+  background: #F9F9F9;
+}
+.pull-left {
+  float: left;
+}
+.pull-right {
+  float: right;
+}
+.kt_datatable thead tr th {
+  font-weight: bold;
+}
+.hidden {
+  display: none;
+}
+.seleccionColoresSmall {
+  height: 10px;
+}
+
+.center-text {-
+  text-align: center;
+}
+
+/* line 39, app.scss */
+.mayusculas {
+  text-transform: uppercase;
+}
+
+/* line 40, app.scss */
+.minusculas {
+  text-transform: lowercase;
+}
+
+/* line 41, app.scss */
+.input-0 {
+  width: 20px;
+}
+
+/* line 42, app.scss */
+.input-035 {
+  width: 35px;
+}
+
+/* line 43, app.scss */
+.input-05 {
+  width: 45px;
+}
+
+/* line 44, app.scss */
+.input-06 {
+  width: 50px;
+}
+
+/* line 45, app.scss */
+.input-1 {
+  width: 70px;
+}
+
+/* line 46, app.scss */
+.input-2 {
+  width: 100px;
+}
+
+/* line 47, app.scss */
+.input-3 {
+  width: 200px;
+}
+
+/* line 48, app.scss */
+.input-4 {
+  width: 300px;
+}
+
+/* line 49, app.scss */
+.input-5 {
+  width: 400px;
+}
+
+/* line 50, app.scss */
+.input-6 {
+  width: 500px;
+}
+
+/* line 51, app.scss */
+.input-7 {
+  width: 600px;
+}
+
+/* line 52, app.scss */
+.input-8 {
+  width: 700px;
+}
+
+/* line 53, app.scss */
+.input-9 {
+  width: 960px;
+}
+
+/* line 54, app.scss */
+#mensaje-antes {
+  color: #C1C1C1;
+  background-color: #EAEAEA;
+  font-size: 30px;
+  padding: 80px 0;
+  text-align: center;
+}
+
+/* line 61, app.scss */
+.centrar {
+  margin: 0 auto;
+}
+
+/* line 63, app.scss */
+.tabla-inputs tr:nth-child(even) td {
+  padding-bottom: 10px;
+}
+
+/* line 67, app.scss */
+.tooltip-diferencia-precio {
+  font-size: 12px;
+}
+
+/* line 70, app.scss */
+.input-error {
+  background: #FFC4C4;
+}
+
+/* line 73, app.scss */
+.input-ok {
+  background: #D0F7B2;
+}
+
+/* line 76, app.scss */
+.table-bordered thead tr th {
+  vertical-align: middle;
+}
+
+/* line 79, app.scss */
+.fila-check {
+  margin: 9px 14px 0 !important;
+}
+
+/* line 82, app.scss */
+.fila-check-mini {
+  margin: 9px 0 0 !important;
+}
+
+/* line 85, app.scss */
+.fila-check-reparacion {
+  margin: 0 !important;
+}
+
+/* line 88, app.scss */
+.no-margenes {
+  margin: 0 !important;
+}
+
+/* line 91, app.scss */
+.body-estilo-blanco {
+  background-color: #FFF;
+  background-image: none;
+  overflow: auto;
+  height: auto;
+}
+
+/* line 97, app.scss */
+.liquido {
+  width: 100%;
+}
+
+/* line 100, app.scss */
+.table-centrar tbody tr td {
+  text-align: center;
+}
+
+/* line 103, app.scss */
+.table-pequeno {
+  font-size: 12px;
+  text-align: center;
+}
+/* line 106, app.scss */
+.table-pequeno tbody tr td input {
+  font-size: 12px;
+}
+
+/* line 110, app.scss */
+.texto-gris {
+  color: #BABABA;
+}
+
+/* line 113, app.scss */
+.columna-verde td {
+  background-color: #32CD32 !important;
+}
+
+.columna-azul td {
+  background-color: #B5DCE8 !important;
+}
+
+/* line 116, app.scss */
+.columna-verde td {
+  background-color: #90EE90 !important;
+}
+.columna-naranja td {
+  background-color: #F6AA72 !important;
+}
+
+/* line 119, app.scss */
+.columna-roja td {
+  background-color: #FF9191 !important;
+}
+
+/* line 122, app.scss */
+.columna-amarilla td {
+  background-color: #90EE90 !important;
+}
+
+/* line 125, app.scss */
+.import_export_formato {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* -----------------------------------------
+	Bootstrap Overrides
+----------------------------------------- */
+/* line 133, app.scss */
+#imprimir-bg {
+  background-color: #F00;
+  padding: 10px 0;
+}
+
+/* line 137, app.scss */
+#imprimir-titulo {
+  font-size: 24px;
+  font-weight: bold;
+  float: left;
+}
+
+/* line 142, app.scss */
+#imprimir-subtitulo {
+  font-size: 24px;
+  font-weight: bold;
+  float: right;
+}
+
+/* line 147, app.scss */
+.table-imprimir {
+  margin-top: 20px;
+  font-size: 10px;
+}
+/* line 150, app.scss */
+.table-imprimir thead > tr > th, .table-imprimir tbody > tr > th, .table-imprimir tfoot > tr > th, .table-imprimir thead > tr > td, .table-imprimir tbody > tr > td, .table-imprimir tfoot > tr > td {
+  padding: 4px;
+}
+
+/* -----------------------------------------
+	Bootstrap Overrides
+----------------------------------------- */
+/* line 158, app.scss */
+.well {
+  margin-bottom: 0;
+}
+
+/* line 159, app.scss */
+.form-control {
+  display: inline-block;
+}
+
+/* line 161, app.scss */
+.form-horizontal .error .help-block, .form-horizontal .error .control-label, .form-horizontal .error .radio, .form-horizontal .error .checkbox, .form-horizontal .error .radio-inline, .form-horizontal .error .checkbox-inline {
+  color: #B94A48;
+}
+/* line 164, app.scss */
+.form-horizontal .error .form-control {
+  border-color: #a94442;
+  -webkit-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
+}
+/* line 169, app.scss */
+.form-horizontal .error .form-control:focus {
+  border-color: #843534;
+  -webkit-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 6px #ce8483;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 6px #ce8483;
+}
+
+/* line 176, app.scss */
+.form-horizontal .success .help-block, .form-horizontal .success .control-label, .form-horizontal .success .radio, .form-horizontal .success .checkbox, .form-horizontal .success .radio-inline, .form-horizontal .success .checkbox-inline {
+  color: #468847;
+}
+/* line 179, app.scss */
+.form-horizontal .success .form-control {
+  color: #468847;
+  border-color: #3c763d;
+  -webkit-box-shadow: 0 1px 1px rgba(0, 0, 0, 0.075) inset;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.075) inset;
+}
+/* line 185, app.scss */
+.form-horizontal .success .form-control:focus {
+  border-color: #2b542c;
+  -webkit-box-shadow: 0 1px 1px rgba(0, 0, 0, 0.075) inset, 0 0 6px #7aba7b;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.075) inset, 0 0 6px #7aba7b;
+}
+
+/* line 191, app.scss */
+.escondido {
+  display: none;
+}
+
+/* line 192, app.scss */
+.titulo-global {
+  font-family: 'LatoBold';
+  font-size: 26px;
+  margin: 3px 15px 0;
+}
+
+/* line 197, app.scss */
+.subtitulo-global {
+  font-family: 'LatoBold';
+  font-size: 22px;
+  margin: 0px 0 10px;
+}
+
+/* line 202, app.scss */
+.icono-mensaje {
+  margin-right: 5px;
+}
+
+/* line 205, app.scss */
+.tabla-estilizada {
+  font-style: normal;
+  font-weight: normal;
+  letter-spacing: -1px;
+  border-collapse: collapse;
+  text-align: center;
+  margin: 5px 0 20px;
+  width: 100%;
+}
+
+/* line 214, app.scss */
+.tabla-estilizada tbody td {
+  padding: 4px 5px;
+  text-align: left;
+}
+
+/* line 218, app.scss */
+.tabla-estilizada thead th, .tabla-estilizada tfoot td {
+  color: #fff;
+  font-size: 14px;
+  font-weight: normal;
+  padding: 5px 0 6px;
+  text-align: center;
+  background-color: #222;
+  border-right: 1px dotted #666;
+  border-top: 3px solid #666;
+  -moz-box-shadow: 0px -1px 4px black;
+  -webkit-box-shadow: 0px -1px 4px black;
+  box-shadow: 0px -1px 4px black;
+  text-shadow: 0px 0px 1px #fff;
+  text-shadow: 1px 1px 1px #000;
+}
+
+/* line 233, app.scss */
+.tabla-zebra tbody tr:nth-child(odd) {
+  background-color: #EAEAEA;
+}
+
+/* line 236, app.scss */
+.form-horizontal label {
+  font-family: 'OpenSansLight';
+  font-weight: normal;
+}
+
+
+/* -----------------------------------------
+   Principal
+----------------------------------------- */
+/* line 433, app.scss */
+#contenedor-principal {
+  margin: 51px auto 50px;
+  background-color: #F8F8F8;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+}
+/* line 437, app.scss */
+#contenedor-principal h1 {
+  font-family: 'OpenSansRegular';
+  font-weight: regular;
+  font-size: 32px;
+  margin-bottom: 0;
+}
+
+/* line 444, app.scss */
+.dropdown-submenu {
+  position: relative;
+}
+
+/* line 445, app.scss */
+.dropdown-submenu > .dropdown-menu {
+  top: 0;
+  left: 100%;
+  margin-top: -6px;
+  margin-left: -1px;
+  -webkit-border-radius: 0 6px 6px 6px;
+  -moz-border-radius: 0 6px 6px 6px;
+  border-radius: 0 6px 6px 6px;
+}
+
+/* line 446, app.scss */
+.dropdown-submenu:hover > .dropdown-menu {
+  display: block;
+}
+
+/* line 447, app.scss */
+.dropdown-submenu > a:after {
+  display: block;
+  content: " ";
+  float: right;
+  width: 0;
+  height: 0;
+  border-color: transparent;
+  border-style: solid;
+  border-width: 5px 0 5px 5px;
+  border-left-color: #cccccc;
+  margin-top: 5px;
+  margin-right: -10px;
+}
+
+/* line 448, app.scss */
+.dropdown-submenu:hover > a:after {
+  border-left-color: #ffffff;
+}
+
+/* line 449, app.scss */
+.dropdown-submenu.pull-left {
+  float: none;
+}
+
+/* line 449, app.scss */
+.dropdown-submenu.pull-left > .dropdown-menu {
+  left: -100%;
+  margin-left: 10px;
+  -webkit-border-radius: 6px 0 6px 6px;
+  -moz-border-radius: 6px 0 6px 6px;
+  border-radius: 6px 0 6px 6px;
+}
+
+/* -----------------------------------------
+   Catalogos
+----------------------------------------- */
+/* line 454, app.scss */
+.tabla-datos {
+  margin: 5px 0 20px;
+}
+/* line 456, app.scss */
+.tabla-datos tbody tr td {
+  vertical-align: middle;
+}
+/* line 459, app.scss */
+.tabla-datos .centrar {
+  text-align: center;
+}
+/* line 461, app.scss */
+.tabla-datos .centrar .btn-group {
+  text-align: left;
+}
+
+.nonstyle-input { background-color: transparent; border: none; }
+
+/* -----------------------------------------
+   Verificacion Dactilar
+----------------------------------------- */
+/* line 470, app.scss */
+#verificacion-bg {
+  background: url("../img/bg2.jpg");
+  height: 100%;
+}
+
+/* line 474, app.scss */
+#verificacion {
+  text-align: center;
+  padding-top: 20px;
+}
+/* line 477, app.scss */
+#verificacion #codigo {
+  font-size: 16px;
+  padding: 15px 25px;
+  text-align: center;
+}
+/* line 482, app.scss */
+#verificacion #fondo {
+  background: #3f4c6b;
+  background: -moz-linear-gradient(top, #3f4c6b 0%, #393051 100%);
+  background: -webkit-gradient(linear, left top, left bottom, color-stop(0%, #3f4c6b), color-stop(100%, #393051));
+  background: -webkit-linear-gradient(top, #3f4c6b 0%, #393051 100%);
+  background: -o-linear-gradient(top, #3f4c6b 0%, #393051 100%);
+  background: -ms-linear-gradient(top, #3f4c6b 0%, #393051 100%);
+  background: linear-gradient(to bottom, #3f4c6b 0%, #393051 100%);
+  filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#3f4c6b', endColorstr='#393051',GradientType=0 );
+  padding: 25px 0;
+  text-align: center;
+}
+/* line 494, app.scss */
+#verificacion #resultado {
+  font-family: OpenSansBold;
+  color: #FFF;
+  text-shadow: 0 10px 10px #111;
+}
+/* line 499, app.scss */
+#verificacion #texto-grande {
+  font-size: 3em;
+  line-height: 100%;
+  letter-spacing: -4px;
+}
+/* line 504, app.scss */
+#verificacion #texto-hora {
+  font-size: 3em;
+  line-height: 100%;
+  color: #FF0;
+}
+/* line 509, app.scss */
+#verificacion ::-moz-selection {
+  background: #5af;
+  color: #fff;
+  text-shadow: none;
+}
+/* line 510, app.scss */
+#verificacion ::selection {
+  background: #5af;
+  color: #fff;
+  text-shadow: none;
+}
+/* line 512, app.scss */
+#verificacion .container {
+  width: 960px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+/* line 513, app.scss */
+#verificacion .clock {
+  margin: 0 auto;
+  color: #000;
+}
+/* line 514, app.scss */
+#verificacion #Date {
+  font-family: 'BebasNeueRegular', Arial, Helvetica, sans-serif;
+  font-size: 36px;
+  text-align: center;
+  text-shadow: 0 0 5px #F00;
+}
+/* line 515, app.scss */
+#verificacion ul {
+  width: 800px;
+  margin: 0 auto 0;
+  padding: 0px;
+  list-style: none;
+  text-align: center;
+}
+/* line 516, app.scss */
+#verificacion ul li {
+  display: inline;
+  font-size: 10em;
+  text-align: center;
+  font-family: 'BebasNeueRegular', Arial, Helvetica, sans-serif;
+  text-shadow: 0 0 10px #F00;
+  line-height: 80%;
+}
+/* line 517, app.scss */
+#verificacion #point {
+  position: relative;
+  -moz-animation: mymove 1s ease infinite;
+  -webkit-animation: mymove 1s ease infinite;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+@-webkit-keyframes mymove {
+  /* line 521, app.scss */
+  0% {
+    opacity: 1.0;
+    text-shadow: 0 0 20px #F00;
+  }
+
+  /* line 522, app.scss */
+  50% {
+    opacity: 0;
+    text-shadow: none;
+  }
+
+  /* line 523, app.scss */
+  100% {
+    opacity: 1.0;
+    text-shadow: 0 0 20px #F00;
+  }
+}
+
+@-moz-keyframes mymove {
+  /* line 526, app.scss */
+  0% {
+    opacity: 1.0;
+    text-shadow: 0 0 20px #F00;
+  }
+
+  /* line 527, app.scss */
+  50% {
+    opacity: 0;
+    text-shadow: none;
+  }
+
+  /* line 528, app.scss */
+  100% {
+    opacity: 1.0;
+    text-shadow: 0 0 20px #F00;
+  }
+}
+
+/* Steps */
+.design-process-section .text-align-center {
+    line-height: 25px;
+    margin-bottom: 12px;
+}
+.design-process-content {
+    border: 1px solid #e9e9e9;
+    position: relative;
+    padding: 16px 34% 30px 30px;
+}
+.design-process-content img {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+    max-height: 100%;
+}
+.design-process-content h3 {
+    margin-bottom: 16px;
+}
+.design-process-content p {
+    line-height: 26px;
+    margin-bottom: 12px;
+}
+.process-model {
+    list-style: none;
+    padding: 0;
+    position: relative;
+    margin: 20px auto 26px;
+    border: none;
+    z-index: 0;
+}
+.process-model li::after {
+    background: #e5e5e5 none repeat scroll 0 0;
+    bottom: 0;
+    content: "";
+    display: block;
+    height: 4px;
+    margin: 0 auto;
+    position: absolute;
+    right: 120px;
+    top: 33px;
+    width: 85%;
+    z-index: -1;
+}
+.process-model li.visited::after {
+    background: #57b87b;
+}
+.process-model li:last-child::after {
+    width: 0;
+}
+.process-model li {
+    display: inline-block;
+    width: 12%;
+    text-align: center;
+    float: none;
+}
+.process-model-int li {
+    display: inline-block;
+    width: 11%;
+    text-align: center;
+    float: none;
+}
+.nav-tabs.process-model > li.active > a, .nav-tabs.process-model > li.active > a:hover, .nav-tabs.process-model > li.active > a:focus, .process-model li a:hover, .process-model li a:focus {
+    border: none;
+    background: transparent;
+
+}
+.process-model li a {
+    padding: 0;
+    border: none;
+    color: #606060;
+}
+.process-model li.active,
+.process-model li.visited {
+    color: #57b87b;
+}
+.process-model li.active a,
+.process-model li.active a:hover,
+.process-model li.active a:focus,
+.process-model li.visited a,
+.process-model li.visited a:hover,
+.process-model li.visited a:focus {
+    color: #57b87b;
+}
+.process-model li.active p,
+.process-model li.visited p {
+    font-weight: 600;
+}
+.process-model li i {
+    display: block;
+    height: 68px;
+    width: 68px;
+    text-align: center;
+    margin: 0 auto;
+    background: #f5f6f7;
+    border: 2px solid #e5e5e5;
+    line-height: 68px;
+    font-size: 40px;
+    border-radius: 50%;
+}
+.process-model li.active i, .process-model li.visited i  {
+    background: #fff;
+    border-color: #57b87b;
+}
+.process-model li p {
+    font-size: 14px;
+    margin-top: 11px;
+}
+.process-model.contact-us-tab li.visited a, .process-model.contact-us-tab li.visited p {
+    color: #606060!important;
+    font-weight: normal
+}
+.process-model.contact-us-tab li::after  {
+    display: none; 
+}
+.process-model.contact-us-tab li.visited i {
+    border-color: #e5e5e5; 
+}
+
+@media screen and (max-width: 560px) {
+  .more-icon-preocess.process-model li span {
+        font-size: 23px;
+        height: 50px;
+        line-height: 46px;
+        width: 50px;
+    }
+    .more-icon-preocess.process-model li::after {
+        top: 24px;
+    }
+}
+@media screen and (max-width: 380px) { 
+    .process-model.more-icon-preocess li {
+        width: 16%;
+    }
+    .more-icon-preocess.process-model li span {
+        font-size: 16px;
+        height: 35px;
+        line-height: 32px;
+        width: 35px;
+    }
+    .more-icon-preocess.process-model li p {
+        font-size: 8px;
+    }
+    .more-icon-preocess.process-model li::after {
+        top: 18px;
+    }
+    .process-model.more-icon-preocess {
+        text-align: center;
+    }
+}
+.text-green {
+  color: #2E7E40;
+}
+.fc-daygrid-event {
+  color: #3F4254 !important;
+}
+.fc-toolbar-title {
+  font-size: 1.65em !important;
+  margin: 0;
+}
