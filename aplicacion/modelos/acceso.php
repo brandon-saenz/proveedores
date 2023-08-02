@@ -61,11 +61,10 @@ final class Modelos_Acceso extends Modelo {
 			try {
 				$this->_nombreUsuario = $_POST['nombreUsuario'];
 				
-				$sth = $this->_db->prepare("SELECT * FROM proveedores WHERE email = ? AND status IN (1,2,3) LIMIT 1");
+				$sth = $this->_db->prepare("SELECT * FROM proveedores WHERE email = ? LIMIT 1");
 				$sth->bindParam(1, $this->_nombreUsuario);
 				if(!$sth->execute()) throw New Exception();
 				$datos = $sth->fetch();
-
 				if (hash("sha256", $_POST["contrasena"].$datos['salt']) == $datos['contrasena']) {
 					$_SESSION['login_flag'] = 1;
 					$_SESSION['login_id'] = $datos['id'];
