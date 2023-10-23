@@ -10,11 +10,11 @@ final class Modelos_Conexion {
 			if(in_array($_SERVER['HTTP_HOST'], $lista)) {
 				$_usuario =		 'root';
 				$_contrasena =	 '';
-				$_nombre =		 'dualstud_gvalcas';;
+				$_nombre =		 'saevalcas_db';
 			} else {
-		    	$_usuario =		 'dualstud_gvalcas';
-				$_contrasena =	 'BO0B13S777.'; 
-				$_nombre =		 'dualstud_gvalcas';
+		    	$_usuario =		 'saevalcas_db';
+				$_contrasena =	 '8%Y&=H!YE1FV';
+				$_nombre =		 'saevalcas_db';
 			}
 
 			$this->_bd = new PDO("mysql:host=$this->_host;dbname=$_nombre;charset=utf8", $_usuario, $_contrasena);

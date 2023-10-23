@@ -19,6 +19,343 @@ final class Modelos_Proveedor extends Modelo {
         return $output;
     }
 
+	public function expedienteArchivos($uniqueId){
+		require_once(APP . 'plugins/fpdf183/fpdf.php');
+		require_once(APP . 'plugins/fpdi/src/autoload.php');
+		header('Content-Type: text/html; charset=UTF-8');
+
+		$result = array();
+
+		// ini_set('display_errors', 1);
+		try {
+
+			// GET ARCHIVOS
+			
+				$sth = $this->_db->prepare("SELECT p.uniqueid, CONCAT(ap.nombre, ' ', ap.apellidos) AS aprueba, CONCAT(au.nombre, ' ', au.apellidos) AS autoriza, p.*
+					FROM proveedores p
+					LEFT JOIN empleados ap
+					ON ap.id = p.id_aprueba
+					LEFT JOIN empleados au
+					ON au.id = p.id_autoriza
+					WHERE p.uniqueid = ?
+				");
+				$sth->bindParam(1, $uniqueId);
+				if(!$sth->execute()) throw New Exception();
+				$datos = $sth->fetch();
+
+				$data = array(
+					'uniqueid' => $datos['uniqueid'],
+					'id' => $datos['id'],
+					'nombre' => $datos['nombre'],
+					'rfc' => $datos['rfc'],
+					'csf' => $datos['csf'],
+					'cdd' => $datos['cdd'],
+					'edocta' => $datos['edocta'],
+					'opcs' => $datos['opcs'],
+					'logo' => $datos['logo'],
+					'ac' => $datos['ac'],
+					'pnrl' => $datos['pnrl'],
+					'iorl' => $datos['iorl'],
+					'upp' => $datos['upp'],
+					'eoss' => $datos['eoss'],
+					'pep' => $datos['pep'],
+					'ine_anverso' => $datos['ine_anverso'],
+					'ine_reverso' => $datos['ine_reverso'],
+					'recom_sec_cons' => $datos['recom_sec_cons'],
+					'cat_trab_prev' => $datos['cat_trab_prev'],
+					'firma_conform' => $datos['firma_conform'],
+					'firma_reg_disen' => $datos['firma_reg_disen'],
+					'firma_reg_cons' => $datos['firma_reg_cons'],
+					'repse' => $datos['repse'],
+					'anexo1' => $datos['anexo1'],
+					'anexo2' => $datos['anexo2'],
+					'anexo3' => $datos['anexo3'],
+					'anexo4' => $datos['anexo4'],
+					'anexo5' => $datos['anexo5'],
+				);
+
+			// ORDENAR ARCHIVOS
+
+				$structure_archivos = array(
+					'logo' => array('title' => 'Logotipo de la empresa', 'file' => $data['logo']),
+					'csf' => array('title' => 'Constancia de situacion fiscal', 'file' => $data['csf']),
+					'cdd' => array('title' => 'Comprobante de domicilio (Recibo de servicios)', 'file' => $data['cdd']),
+					'edocta' => array('title' => 'Estado de cuenta bancario', 'file' => $data['edocta']),
+					'opcs' => array('title' => 'Opinion positiva del cumplimiento por parte del SAT', 'file' => $data['opcs']),
+					'ac' => array('title' => 'Acta Constitutiva', 'file' => $data['ac']),
+					'pnrl' => array('title' => 'Poder Notarial del Representante Legal', 'file' => $data['pnrl']),
+					'iorl' => array('title' => 'Identificacion Oficial del Representante Legal', 'file' => $data['iorl']),
+					'upp' => array('title' => 'Ultimo pago provisional ISR, IVA, retencion de sueldos y salarios', 'file' => $data['upp']),
+					'eoss' => array('title' => 'Comprobante de pago al seguro social', 'file' => $data['eoss']),
+					'pep' => array('title' => 'Notificacion a proveedores y evaluacion de proveedores', 'file' => $data['pep']),
+					'ine_anverso' => array('title' => 'Identificacion Oficial Frente', 'file' => $data['ine_anverso']),
+					'ine_reverso' => array('title' => 'Identificacion Oficial Reverso', 'file' => $data['ine_reverso']),
+					'recom_sec_cons' => array('title' => 'Recomendaciones dentro del sector de construccion', 'file' => $data['recom_sec_cons']),
+					'cat_trab_prev' => array('title' => 'Catalogo de trabajos previos', 'file' => $data['cat_trab_prev']),
+					'firma_conform' => array('title' => 'Firma de conformidad', 'file' => $data['firma_conform']),
+					'firma_reg_disen' => array('title' => 'Firma de las Reglas de Disenio', 'file' => $data['firma_reg_disen']),
+					'firma_reg_cons' => array('title' => 'Firma del Reglamento de Construccion', 'file' => $data['firma_reg_cons']),
+					'repse' => array('title' => 'REPSE', 'file' => $data['repse']),
+					'anexo1' => array('title' => 'Documento Anexo 1', 'file' => $data['anexo1']),
+					'anexo2' => array('title' => 'Documento Anexo 2', 'file' => $data['anexo2']),
+					'anexo3' => array('title' => 'Documento Anexo 3', 'file' => $data['anexo3']),
+					'anexo4' => array('title' => 'Documento Anexo 4', 'file' => $data['anexo4']),
+					'anexo5' => array('title' => 'Documento Anexo 5', 'file' => $data['anexo5']),
+				);
+
+			// DOCUMENTO
+			
+			$width = 210; 
+			$height = 297;
+
+			$width_ = 190; 
+			$height_ = 269;
+
+			$pdf = new \setasign\Fpdi\Fpdi();
+			$archivos = array();
+
+			$pdf->SetTitle('Expediente Digital - '.$data['nombre']);
+
+			foreach ($structure_archivos as $item) {
+				if($item['file']){
+					
+					$info = pathinfo($item['file']);
+					$extension = $info['extension'];
+					
+					if (strtolower($extension) === 'pdf') {
+						$archivos[] = $item;
+						$filename = ROOT_DIR.'data/privada/archivos/'.$item['file'];
+						if (file_exists($filename)) {
+							$pages = $pdf->setSourceFile($filename);
+							// $pages = $pdf->setSourceFile(ROOT_DIR.'data/privada/archivos/Recibooficinasep-1697674428.pdf');
+							if($pages>0){
+								for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
+									$pdf->AddPage();
+									$tplIdx = $pdf->importPage($pageNumber);
+									$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
+									$pdf->SetFont('Arial','B',15);
+									$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+								}
+							}
+						}
+					} else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
+						$pdf->AddPage();
+						$imagen = ROOT_DIR.'data/privada/archivos/'.$item['file'];
+
+						list($ancho, $alto) = getimagesize($imagen);
+						$img_w = $ancho*0.2;
+						$img_h = $alto*0.2;
+
+						$x = ($width/2)-($img_w/2); $y = 30;
+
+						$pdf->Image($imagen, $x, $y, $img_w, $img_h);
+						$pdf->SetFont('Arial','B',15);
+						$pdf->Cell(0,10,$item['title'].' - Imagen', 0, 1, 'C');
+					}
+
+
+				}
+			}
+
+			// $imagen = ROOT_DIR.'data/privada/archivos/ImagendeWhatsApp2023-10-18alas08.47.11_708f5a7e-1697644260.jpg'; 
+
+			// Obtener las dimensiones de la imagen
+			
+
+			// echo json_encode($ancho); die;
+			
+			
+
+			// $pdf->AddPage();
+			// $pdf->setSourceFile(ROOT_DIR.'data/privada/curp.pdf');
+			// $tplIdx = $pdf->importPage(1);
+
+
+			// $pdf->useTemplate($tplIdx, 0, 0, $width, $height);
+
+			// // set the source file
+			
+			$pdf->Output();
+		} catch (\Throwable $th) {
+			$result = array('type' => 'error', 'msg' => $th);
+		} catch (Exception $e) {
+			$result = array('type' => 'error', 'msg' => $e);
+		}
+
+		// echo json_encode($result); die;
+
+		// return $result;
+	}
+
+	public function expedienteArchivos2($uniqueId){
+		require_once(APP . 'plugins/fpdf183/fpdf.php');
+		require_once(APP . 'plugins/fpdi/src/autoload.php');
+		header('Content-Type: text/html; charset=UTF-8');
+
+		$result = array();
+
+		// ini_set('display_errors', 1);
+		try {
+
+			// GET ARCHIVOS
+			
+				$sth = $this->_db->prepare("SELECT p.uniqueid, CONCAT(ap.nombre, ' ', ap.apellidos) AS aprueba, CONCAT(au.nombre, ' ', au.apellidos) AS autoriza, p.*
+					FROM proveedores p
+					LEFT JOIN empleados ap
+					ON ap.id = p.id_aprueba
+					LEFT JOIN empleados au
+					ON au.id = p.id_autoriza
+					WHERE p.uniqueid = ?
+				");
+				$sth->bindParam(1, $uniqueId);
+				if(!$sth->execute()) throw New Exception();
+				$datos = $sth->fetch();
+
+				$data = array(
+					'uniqueid' => $datos['uniqueid'],
+					'id' => $datos['id'],
+					'nombre' => $datos['nombre'],
+					'rfc' => $datos['rfc'],
+					'csf' => $datos['csf'],
+					'cdd' => $datos['cdd'],
+					'edocta' => $datos['edocta'],
+					'opcs' => $datos['opcs'],
+					'logo' => $datos['logo'],
+					'ac' => $datos['ac'],
+					'pnrl' => $datos['pnrl'],
+					'iorl' => $datos['iorl'],
+					'upp' => $datos['upp'],
+					'eoss' => $datos['eoss'],
+					'pep' => $datos['pep'],
+					'ine_anverso' => $datos['ine_anverso'],
+					'ine_reverso' => $datos['ine_reverso'],
+					'recom_sec_cons' => $datos['recom_sec_cons'],
+					'cat_trab_prev' => $datos['cat_trab_prev'],
+					'firma_conform' => $datos['firma_conform'],
+					'firma_reg_disen' => $datos['firma_reg_disen'],
+					'firma_reg_cons' => $datos['firma_reg_cons'],
+					'repse' => $datos['repse'],
+					'anexo1' => $datos['anexo1'],
+					'anexo2' => $datos['anexo2'],
+					'anexo3' => $datos['anexo3'],
+					'anexo4' => $datos['anexo4'],
+					'anexo5' => $datos['anexo5'],
+				);
+
+			// ORDENAR ARCHIVOS
+
+				$structure_archivos = array(
+					'logo' => array('title' => 'Logotipo de la empresa', 'file' => $data['logo']),
+					'csf' => array('title' => 'Constancia de situacion fiscal', 'file' => $data['csf']),
+					'cdd' => array('title' => 'Comprobante de domicilio (Recibo de servicios)', 'file' => $data['cdd']),
+					'edocta' => array('title' => 'Estado de cuenta bancario', 'file' => $data['edocta']),
+					'opcs' => array('title' => 'Opinion positiva del cumplimiento por parte del SAT', 'file' => $data['opcs']),
+					'ac' => array('title' => 'Acta Constitutiva', 'file' => $data['ac']),
+					'pnrl' => array('title' => 'Poder Notarial del Representante Legal', 'file' => $data['pnrl']),
+					'iorl' => array('title' => 'Identificacion Oficial del Representante Legal', 'file' => $data['iorl']),
+					'upp' => array('title' => 'Ultimo pago provisional ISR, IVA, retencion de sueldos y salarios', 'file' => $data['upp']),
+					'eoss' => array('title' => 'Comprobante de pago al seguro social', 'file' => $data['eoss']),
+					'pep' => array('title' => 'Notificacion a proveedores y evaluacion de proveedores', 'file' => $data['pep']),
+					'ine_anverso' => array('title' => 'Identificacion Oficial Frente', 'file' => $data['ine_anverso']),
+					'ine_reverso' => array('title' => 'Identificacion Oficial Reverso', 'file' => $data['ine_reverso']),
+					'recom_sec_cons' => array('title' => 'Recomendaciones dentro del sector de construccion', 'file' => $data['recom_sec_cons']),
+					'cat_trab_prev' => array('title' => 'Catalogo de trabajos previos', 'file' => $data['cat_trab_prev']),
+					'firma_conform' => array('title' => 'Firma de conformidad', 'file' => $data['firma_conform']),
+					'firma_reg_disen' => array('title' => 'Firma de las Reglas de Disenio', 'file' => $data['firma_reg_disen']),
+					'firma_reg_cons' => array('title' => 'Firma del Reglamento de Construccion', 'file' => $data['firma_reg_cons']),
+					'repse' => array('title' => 'REPSE', 'file' => $data['repse']),
+					'anexo1' => array('title' => 'Documento Anexo 1', 'file' => $data['anexo1']),
+					'anexo2' => array('title' => 'Documento Anexo 2', 'file' => $data['anexo2']),
+					'anexo3' => array('title' => 'Documento Anexo 3', 'file' => $data['anexo3']),
+					'anexo4' => array('title' => 'Documento Anexo 4', 'file' => $data['anexo4']),
+					'anexo5' => array('title' => 'Documento Anexo 5', 'file' => $data['anexo5']),
+				);
+
+			// DOCUMENTO
+			
+			$width = 210; 
+			$height = 297;
+
+			$width_ = 190; 
+			$height_ = 269;
+
+			$pdf = new \setasign\Fpdi\Fpdi();
+			$archivos = array();
+
+			$pdf->SetTitle('Expediente Digital - '.$data['nombre']);
+
+			foreach ($structure_archivos as $item) {
+				if($item['file']){
+					
+					$info = pathinfo($item['file']);
+					$extension = $info['extension'];
+					
+					if (strtolower($extension) === 'pdf') {
+						$archivos[] = $item;
+						$filename = ROOT_DIR.'data/privada/archivos/'.$item['file'];
+						if (file_exists($filename)) {
+							$pages = $pdf->setSourceFile($filename);
+							// $pages = $pdf->setSourceFile(ROOT_DIR.'data/privada/archivos/Recibooficinasep-1697674428.pdf');
+							if($pages>0){
+								for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
+									$pdf->AddPage();
+									$tplIdx = $pdf->importPage($pageNumber);
+									$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
+									$pdf->SetFont('Arial','B',15);
+									$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+								}
+							}
+						}
+					} else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
+						$pdf->AddPage();
+						$imagen = ROOT_DIR.'data/privada/archivos/'.$item['file'];
+
+						list($ancho, $alto) = getimagesize($imagen);
+						$img_w = $ancho*0.2;
+						$img_h = $alto*0.2;
+
+						$x = ($width/2)-($img_w/2); $y = 30;
+
+						$pdf->Image($imagen, $x, $y, $img_w, $img_h);
+						$pdf->SetFont('Arial','B',15);
+						$pdf->Cell(0,10,$item['title'].' - Imagen', 0, 1, 'C');
+					}
+
+
+				}
+			}
+
+			// $imagen = ROOT_DIR.'data/privada/archivos/ImagendeWhatsApp2023-10-18alas08.47.11_708f5a7e-1697644260.jpg'; 
+
+			// Obtener las dimensiones de la imagen
+			
+
+			// echo json_encode($ancho); die;
+			
+			
+
+			// $pdf->AddPage();
+			// $pdf->setSourceFile(ROOT_DIR.'data/privada/curp.pdf');
+			// $tplIdx = $pdf->importPage(1);
+
+
+			// $pdf->useTemplate($tplIdx, 0, 0, $width, $height);
+
+			// // set the source file
+			
+			$pdf->Output();
+		} catch (\Throwable $th) {
+			$result = array('type' => 'error', 'msg' => $th);
+		} catch (Exception $e) {
+			$result = array('type' => 'error', 'msg' => $e);
+		}
+
+		// echo json_encode($result); die;
+
+		// return $result;
+	}
+
+
 	public function registro() {
 		try {
 			$nombre = mb_strtoupper($_POST['nombre']);
@@ -1235,13 +1572,15 @@ EOT;
 					<td style="width: 250px; color: #444;">
 						<br /><img src="$stasis/img/gvalcas.png" height="50" />
 					</td>
-					<td style="width: 223px; text-align: right; color: #444;">
+					<td style="width: 220px; text-align: right; color: #444;">
 						<span style="font-size: 14px; font-family: 'Roboto Bold';">EXPEDIENTE DE PROVEEDOR</span><br /><br />
 						<span style="font-size: 9px;">Fecha de Registro: $fechaRegistro</span><br />
-						<span style="font-size: 9px;">Status de Proveedor: $statusHtml</span>
+						<span style="font-size: 9px;">Status de Proveedor: $statusHtml</span><br />
+						<span style="font-size: 9px;"><a href="$stasis/perfil/expediente/$uniqueId">Ver Expediente Completo</a></span>
 					</td>
+					<td style="width: 5px;"></td>
 					<td style="width: 65px; text-align: right;">
-						<img src="http://chart.apis.google.com/chart?cht=qr&chs=100x100&chl=https://saevalcas.mx/proveedores/perfil/pdf/$uniqueId&chld=L|0" height="54">
+						<img src="http://chart.apis.google.com/chart?cht=qr&chs=100x100&chl=https://saevalcas.mx/proveedores/perfil/pdf/$uniqueId&chld=L|0" height="75">
 					</td>
 				</tr>
 			</table>

@@ -231,6 +231,16 @@ class Perfil extends Controlador {
 		$proveedor->descargarPdf($id);
 	}
 
+	public function expediente($id = null) {
+		$proveedor = $this->cargarModelo('proveedor');
+		$proveedor->expedienteArchivos($id);
+	}
+
+	public function expediente2($id = null) {
+		$proveedor = $this->cargarModelo('proveedor');
+		$proveedor->expedienteArchivos2($id);
+	}
+
 	public function carga() {
 		$acceso = $this->cargarModelo('acceso');
 		!$acceso->estaLoggeado()? $pagina = $this->redireccionar('./') : $pagina = $this->cargarVista('perfil');
