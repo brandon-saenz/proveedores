@@ -26,7 +26,7 @@ final class Modelos_Proveedor extends Modelo {
 
 		$result = array();
 
-		// ini_set('display_errors', 1);
+		ini_set('display_errors', 1);
 		try {
 
 			// GET ARCHIVOS
@@ -116,6 +116,9 @@ final class Modelos_Proveedor extends Modelo {
 
 			$pdf->SetTitle('Expediente Digital - '.$data['nombre']);
 
+			$pages = null;
+			$capturador_eventos = array();
+
 			foreach ($structure_archivos as $item) {
 				if($item['file']){
 					
@@ -123,68 +126,73 @@ final class Modelos_Proveedor extends Modelo {
 					$extension = $info['extension'];
 					
 					if (strtolower($extension) === 'pdf') {
-						$archivos[] = $item;
 						$filename = ROOT_DIR.'data/privada/archivos/'.$item['file'];
 						if (file_exists($filename)) {
-							$pages = $pdf->setSourceFile($filename);
-							// $pages = $pdf->setSourceFile(ROOT_DIR.'data/privada/archivos/Recibooficinasep-1697674428.pdf');
-							if($pages>0){
-								for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
-									$pdf->AddPage();
-									$tplIdx = $pdf->importPage($pageNumber);
-									$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
-									$pdf->SetFont('Arial','B',15);
-									$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+							$archivos[] = $item;
+
+							try {
+								$pages = $pdf->setSourceFile($filename);
+
+								$capturador_eventos[] = array('type' => 'success', 'name_file' => $item['file'], 'ubicacion' => STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'ARCHIVO VALIDO COMO PDF');
+								// Resto del código...
+								if($pages>0){
+									for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
+										$pdf->AddPage();
+										$tplIdx = $pdf->importPage($pageNumber);
+										$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
+										$pdf->SetFont('Arial','B',15);
+										$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+									}
 								}
+							} catch (\Exception $e) {
+								$capturador_eventos[] = array('type' => 'error', 'name_file' => $item['file'], 'ubicacion' => STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'TRONO ARCHIVO '.$e->getMessage());
 							}
+
 						}
-					} else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
+					}
+
+					else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
 						$pdf->AddPage();
 						$imagen = ROOT_DIR.'data/privada/archivos/'.$item['file'];
 
 						list($ancho, $alto) = getimagesize($imagen);
-						$img_w = $ancho*0.2;
-						$img_h = $alto*0.2;
+
+						$aspect_ratio = $alto/$ancho;
+
+						$img_w = $width_;
+						$img_h = $width_*$aspect_ratio;
 
 						$x = ($width/2)-($img_w/2); $y = 30;
+						
+						// $dimensiones_imagen = array(
+						// 	'ancho_imagen' => $ancho,
+						// 	'alto_imagen' => $alto,
+						// 	'ancho_documento' => $width,
+						// 	'alto_documento' => $height,
+						// );
 
 						$pdf->Image($imagen, $x, $y, $img_w, $img_h);
 						$pdf->SetFont('Arial','B',15);
 						$pdf->Cell(0,10,$item['title'].' - Imagen', 0, 1, 'C');
+
+						$capturador_eventos[] = array('type' => 'success', 'name_file' => $item['file'], 'ubicacion' =>  STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'ARCHIVO VALIDO COMO IMAGEN');
 					}
-
-
 				}
 			}
 
-			// $imagen = ROOT_DIR.'data/privada/archivos/ImagendeWhatsApp2023-10-18alas08.47.11_708f5a7e-1697644260.jpg'; 
+			// if($dimensiones_imagen){
+			// 	echo json_encode($dimensiones_imagen); die;
+			// }
 
-			// Obtener las dimensiones de la imagen
-			
-
-			// echo json_encode($ancho); die;
-			
-			
-
-			// $pdf->AddPage();
-			// $pdf->setSourceFile(ROOT_DIR.'data/privada/curp.pdf');
-			// $tplIdx = $pdf->importPage(1);
+			// echo json_encode($capturador_eventos); die;
 
 
-			// $pdf->useTemplate($tplIdx, 0, 0, $width, $height);
-
-			// // set the source file
-			
 			$pdf->Output();
 		} catch (\Throwable $th) {
 			$result = array('type' => 'error', 'msg' => $th);
 		} catch (Exception $e) {
 			$result = array('type' => 'error', 'msg' => $e);
 		}
-
-		// echo json_encode($result); die;
-
-		// return $result;
 	}
 
 	public function expedienteArchivos2($uniqueId){
@@ -194,7 +202,7 @@ final class Modelos_Proveedor extends Modelo {
 
 		$result = array();
 
-		// ini_set('display_errors', 1);
+		ini_set('display_errors', 1);
 		try {
 
 			// GET ARCHIVOS
@@ -284,6 +292,9 @@ final class Modelos_Proveedor extends Modelo {
 
 			$pdf->SetTitle('Expediente Digital - '.$data['nombre']);
 
+			$pages = null;
+			$capturador_eventos = array();
+
 			foreach ($structure_archivos as $item) {
 				if($item['file']){
 					
@@ -291,68 +302,57 @@ final class Modelos_Proveedor extends Modelo {
 					$extension = $info['extension'];
 					
 					if (strtolower($extension) === 'pdf') {
-						$archivos[] = $item;
 						$filename = ROOT_DIR.'data/privada/archivos/'.$item['file'];
 						if (file_exists($filename)) {
-							$pages = $pdf->setSourceFile($filename);
-							// $pages = $pdf->setSourceFile(ROOT_DIR.'data/privada/archivos/Recibooficinasep-1697674428.pdf');
-							if($pages>0){
-								for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
-									$pdf->AddPage();
-									$tplIdx = $pdf->importPage($pageNumber);
-									$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
-									$pdf->SetFont('Arial','B',15);
-									$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+							$archivos[] = $item;
+
+							try {
+								$pages = $pdf->setSourceFile($filename);
+
+								$capturador_eventos[] = array('type' => 'success', 'name_file' => $item['file'], 'ubicacion' => STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'ARCHIVO VALIDO COMO PDF');
+								// Resto del código...
+								if($pages>0){
+									for ($pageNumber = 1; $pageNumber <= $pages; $pageNumber++) {
+										$pdf->AddPage();
+										$tplIdx = $pdf->importPage($pageNumber);
+										$pdf->useTemplate($tplIdx, 10, 25, $width_, $height_);
+										$pdf->SetFont('Arial','B',15);
+										$pdf->Cell(0,10,$item['title'].' - Pagina #'.$pageNumber, 0, 1, 'C');
+									}
 								}
+							} catch (\Exception $e) {
+								$capturador_eventos[] = array('type' => 'error', 'name_file' => $item['file'], 'ubicacion' => STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'TRONO ARCHIVO '.$e->getMessage());
 							}
+
 						}
-					} else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
+					}
+
+					else if(strtolower($extension) === 'jpg' || strtolower($extension) === 'jpeg' || strtolower($extension) === 'png'){
 						$pdf->AddPage();
 						$imagen = ROOT_DIR.'data/privada/archivos/'.$item['file'];
 
 						list($ancho, $alto) = getimagesize($imagen);
-						$img_w = $ancho*0.2;
-						$img_h = $alto*0.2;
+						$img_w = $ancho*0.16;
+						$img_h = $alto*0.16;
 
 						$x = ($width/2)-($img_w/2); $y = 30;
 
 						$pdf->Image($imagen, $x, $y, $img_w, $img_h);
 						$pdf->SetFont('Arial','B',15);
 						$pdf->Cell(0,10,$item['title'].' - Imagen', 0, 1, 'C');
+
+						$capturador_eventos[] = array('type' => 'success', 'name_file' => $item['file'], 'ubicacion' =>  STASIS.'/data/privada/archivos/'.$item['file'], 'msg' => 'ARCHIVO VALIDO COMO IMAGEN');
 					}
-
-
 				}
 			}
+			// echo json_encode($capturador_eventos); die;
 
-			// $imagen = ROOT_DIR.'data/privada/archivos/ImagendeWhatsApp2023-10-18alas08.47.11_708f5a7e-1697644260.jpg'; 
-
-			// Obtener las dimensiones de la imagen
-			
-
-			// echo json_encode($ancho); die;
-			
-			
-
-			// $pdf->AddPage();
-			// $pdf->setSourceFile(ROOT_DIR.'data/privada/curp.pdf');
-			// $tplIdx = $pdf->importPage(1);
-
-
-			// $pdf->useTemplate($tplIdx, 0, 0, $width, $height);
-
-			// // set the source file
-			
 			$pdf->Output();
 		} catch (\Throwable $th) {
 			$result = array('type' => 'error', 'msg' => $th);
 		} catch (Exception $e) {
 			$result = array('type' => 'error', 'msg' => $e);
 		}
-
-		// echo json_encode($result); die;
-
-		// return $result;
 	}
 
 
