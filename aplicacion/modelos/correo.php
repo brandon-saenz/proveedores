@@ -99,12 +99,12 @@ final class Modelos_Correo extends Modelo {
 			$mail->CharSet 		= 'UTF-8';
 			$mail->Mailer 		= 'smtp';
 			$mail->SMTPDebug  	= 0;
-			$mail->SMTPAuth   	= true;
-			$mail->SMTPSecure 	= 'ssl';
-			$mail->Port     	= 465;
-			$mail->Host			= 'saevalcas.mx';
+			$mail->SMTPAuth   	= TRUE;
+			$mail->SMTPSecure 	= 'tls';
+			$mail->Port     	= 587;
+			$mail->Host			= 'smtp.gmail.com';
 			$mail->Username 	= 'notificaciones@saevalcas.mx';
-			$mail->Password 	= 'Provisional123.';
+			$mail->Password 	= '7T482STf';
 			$mail->SetFrom('notificaciones@saevalcas.mx', 'Rancho Tecate');
 	
 			$mail->addAddress($destinatario);
@@ -128,12 +128,12 @@ final class Modelos_Correo extends Modelo {
 			$mail->CharSet 		= 'UTF-8';
 			$mail->Mailer 		= 'smtp';
 			$mail->SMTPDebug  	= 0;
-			$mail->SMTPAuth   	= true;
-			$mail->SMTPSecure 	= 'ssl';
-			$mail->Port     	= 465;
-			$mail->Host			= 'saevalcas.mx';
+			$mail->SMTPAuth   	= TRUE;
+			$mail->SMTPSecure 	= 'tls';
+			$mail->Port     	= 587;
+			$mail->Host			= 'smtp.gmail.com';
 			$mail->Username 	= 'notificaciones@saevalcas.mx';
-			$mail->Password 	= 'Provisional123.';
+			$mail->Password 	= '7T482STf';
 			$mail->SetFrom('notificaciones@saevalcas.mx', 'Grupo Valcas');
 	
 			$mail->addAddress($destinatario);
@@ -156,12 +156,12 @@ final class Modelos_Correo extends Modelo {
 		$mail->CharSet 		= 'UTF-8';
 		$mail->Mailer 		= 'smtp';
 		$mail->SMTPDebug  	= 0;
-		$mail->SMTPAuth   	= true;
-		$mail->SMTPSecure 	= 'ssl';
-		$mail->Port     	= 465;
-		$mail->Host			= 'saevalcas.mx';
+		$mail->SMTPAuth   	= TRUE;
+		$mail->SMTPSecure 	= 'tls';
+		$mail->Port     	= 587;
+		$mail->Host			= 'smtp.gmail.com';
 		$mail->Username 	= 'notificaciones@saevalcas.mx';
-		$mail->Password 	= 'Provisional123.';
+		$mail->Password 	= '7T482STf';
 		$mail->SetFrom('notificaciones@saevalcas.mx', 'Grupo Valcas');
 
 		if ($propietario == 1) {
@@ -208,12 +208,12 @@ final class Modelos_Correo extends Modelo {
 		$mail->CharSet 		= 'UTF-8';
 		$mail->Mailer 		= 'smtp';
 		$mail->SMTPDebug  	= 0;
-		$mail->SMTPAuth   	= true;
-		$mail->SMTPSecure 	= 'ssl';
-		$mail->Port     	= 465;
-		$mail->Host			= 'saevalcas.mx';
+		$mail->SMTPAuth   	= TRUE;
+		$mail->SMTPSecure 	= 'tls';
+		$mail->Port     	= 587;
+		$mail->Host			= 'smtp.gmail.com';
 		$mail->Username 	= 'notificaciones@saevalcas.mx';
-		$mail->Password 	= 'Provisional123.';
+		$mail->Password 	= '7T482STf';
 		$mail->SetFrom('notificaciones@saevalcas.mx', 'Grupo Valcas');
 
 		if ($propietario == 1) {
@@ -249,12 +249,12 @@ final class Modelos_Correo extends Modelo {
 		$mail->CharSet 		= 'UTF-8';
 		$mail->Mailer 		= 'smtp';
 		$mail->SMTPDebug  	= 0;
-		$mail->SMTPAuth   	= true;
-		$mail->SMTPSecure 	= 'ssl';
-		$mail->Port     	= 465;
-		$mail->Host			= 'saevalcas.mx';
+		$mail->SMTPAuth   	= TRUE;
+		$mail->SMTPSecure 	= 'tls';
+		$mail->Port     	= 587;
+		$mail->Host			= 'smtp.gmail.com';
 		$mail->Username 	= 'notificaciones@saevalcas.mx';
-		$mail->Password 	= 'Provisional123.';
+		$mail->Password 	= '7T482STf';
 		$mail->SetFrom('notificaciones@saevalcas.mx', 'Grupo Valcas');
 		$mail->addAddress($destinatario);
 		$mail->Subject = $titulo;
@@ -291,13 +291,13 @@ final class Modelos_Correo extends Modelo {
 		$mail->isHTML(true); 
 		$mail->CharSet 		= 'UTF-8';
 		$mail->Mailer 		= 'smtp';
-		$mail->SMTPDebug  	= 2;
-		$mail->SMTPAuth   	= true;
-		$mail->SMTPSecure 	= 'ssl';
-		$mail->Port     	= 465;
-		$mail->Host			= 'saevalcas.mx';
+		$mail->SMTPDebug  	= 0;
+		$mail->SMTPAuth   	= TRUE;
+		$mail->SMTPSecure 	= 'tls';
+		$mail->Port     	= 587;
+		$mail->Host			= 'smtp.gmail.com';
 		$mail->Username 	= 'notificaciones@saevalcas.mx';
-		$mail->Password 	= 'Provisional123.';
+		$mail->Password 	= '7T482STf';
 		$mail->SetFrom('notificaciones@saevalcas.mx', 'Grupo Valcas');
 		$mail->addAddress('albert@dualstudio.com.mx');
 		$mail->addAddress('dualstudio.albert@gmail.com');
