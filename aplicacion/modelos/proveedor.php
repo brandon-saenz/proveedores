@@ -1109,6 +1109,7 @@ EOT;
 	}
 
 	public function descargarPdf($uniqueId) {
+		// ini_set('display_errors', 1);
 		// PDF
 		require_once(APP . 'plugins/tcpdf/tcpdf.php');
 		$pdf = new RTPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
@@ -1119,6 +1120,8 @@ EOT;
 		$pdf->SetPrintHeader(false);
 		$pdf->SetMargins(10, 10, 10, 0);
 		$pdf->AddPage();
+
+
 
 		$sth = $this->_db->prepare("
 			SELECT p.uniqueid, CONCAT(ap.nombre, ' ', ap.apellidos) AS aprueba, CONCAT(au.nombre, ' ', au.apellidos) AS autoriza, p.*
@@ -1141,11 +1144,19 @@ EOT;
 			case 3: $tipo = 'CONTRATISTA DE PROYECTO Y OBRAS'; break;
 		}
 
-		if ($datos['logo']) {
-			$logo = '<img src="' . STASIS . '/data/privada/archivos/' . $datos['logo'] . '" height="40" />';
-		} else {
-			$logo = '';
-		}
+		
+		// if ($datos['logo']) {
+		// 	$pathLogo = '/home/saevalcas/public_html/proveedores/data/privada/archivos/'.$datos['logo'];
+		// 	if(file_exists($pathLogo)){
+		// 		// echo json_encode($pathLogo); die;
+		// 		$logo = '<img src="' .$pathLogo. '" height="40" />';
+		// 	}else{
+		// 		$logo = '';
+		// 	}
+
+		// } else {
+		// }
+		$logo = '';
 
 		$uniqueId = $datos['uniqueid'];
 		$status = $datos['status'];
@@ -1566,6 +1577,8 @@ EOT;
 		TCPDF_FONTS::addTTFfont(APP . '/plugins/tcpdf/fonts/SanFransico.ttf', 'TrueTypeUnicode', '', 96);
 		TCPDF_FONTS::addTTFfont(APP . '/plugins/tcpdf/fonts/SanFranciscoBold.ttf', 'TrueTypeUnicode', '', 96);
 
+		$qrCode = Modelos_QR::generateQRCodeImage('https://saevalcas.mx/proveedores/perfil/pdf/'.$uniqueId, 75);
+
 		$html = <<<EOF
 			<table border="0" cellpadding="0" cellspacing="0">
 				<tr>
@@ -1580,7 +1593,7 @@ EOT;
 					</td>
 					<td style="width: 5px;"></td>
 					<td style="width: 65px; text-align: right;">
-						<img src="http://chart.apis.google.com/chart?cht=qr&chs=100x100&chl=https://saevalcas.mx/proveedores/perfil/pdf/$uniqueId&chld=L|0" height="75">
+					$qrCode
 					</td>
 				</tr>
 			</table>
