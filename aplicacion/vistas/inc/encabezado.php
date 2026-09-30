@@ -42,6 +42,11 @@
 
         <link href="assets/css/style.css" rel="stylesheet" type="text/css" />
 
+        <script
+		src="https://code.jquery.com/jquery-3.6.1.js"
+		integrity="sha256-3zlB5s2uwoUzrXK3BT7AX3FyvojsraNFxCc2vC/7pNI="
+		crossorigin="anonymous"></script>
+
     </head>
 
     <!--end::Head-->
@@ -137,6 +142,11 @@
                                 <li class="menu-item menu-item-submenu <?php if ($menu == 'principal') echo 'menu-item-active'; ?>" aria-haspopup="true" data-menu-toggle="hover">
                                     <a href="<?php echo STASIS; ?>" class="menu-link menu-toggle">
                                         <span class="menu-text">Página de Inicio</span>
+                                    </a>
+                                </li>
+                                <li class="menu-item menu-item-submenu <?php if ($menu == 'ordenes') echo 'menu-item-active'; ?>" aria-haspopup="true" data-menu-toggle="hover">
+                                    <a href="<?php echo STASIS; ?>/compras/ordenes" class="menu-link menu-toggle">
+                                        <span class="menu-text">Ordenes de Compra</span>
                                     </a>
                                 </li>
 
