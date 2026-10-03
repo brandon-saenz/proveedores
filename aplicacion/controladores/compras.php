@@ -5,7 +5,10 @@ final class Compras extends Controlador {
 		$modelo = $this->cargarModelo('Compras_Ordenes');
 
 		switch ($accion) {
-			case 'get_listado': echo json_encode($modelo->getListado($id)); die; break;
+			case 'get_factura': echo json_encode($modelo->getFactura($id)); die; break;
+			case 'guardar_factura': echo json_encode($modelo->guardarFactura($id, $_POST, $_FILES)); die; break;
+			// /compras/ordenes/get_listado/{pestaña}[/{id_proveedor}]  (el proveedor es opcional)
+			case 'get_listado': echo json_encode($modelo->getListado($id, $status)); die; break;
 			case 'get_indicadores':
 				// Conteo de órdenes por pestaña (generados / revisadas / autorizadas)
 				if (!$acceso->estaLoggeado()) {
@@ -53,7 +56,9 @@ final class Compras extends Controlador {
 
 		!$acceso->estaLoggeado()? $pagina = $this->cargarVista('login') : $pagina = $this->cargarVista('compras/ordenes');
 
-		$pagina->set('menu', 'ordenes');
+		$archivos = array_filter(scandir(APP . '/vistas/compras/modals/'), function($archivo) {return $archivo !== '.' && $archivo !== '..';});
+		foreach ($archivos as $value) {$modals[] = APP . '/vistas/compras/modals/'.$value;}
+		$pagina->set('modals', $modals);
 
 		$pagina->set('titulo', "Ordenes de Compra");
 		$pagina->renderizar();

@@ -15,8 +15,18 @@ final class Modelos_Compras_Ordenes extends Modelo {
     // Debe coincidir con ISR_RESTA de procesar.js / visualizar.js / Modelos_Compras_Requisiciones
     const ISR_RESTA = false;
 
+    // Tasas oficiales de I.V.A. (%) permitidas (igual que TASAS_IVA de Modelos_Compras_Requisiciones y de los JS)
+    const TASAS_IVA = array(16, 8);
+
     // IDs de empleados que pueden autorizar órdenes. Vacío = cualquier usuario con sesión.
     const AUTORIZAN = array();
+
+    // Misma carpeta que usa Modelos_Catalogos_Facturas::RUTA_ARCHIVOS
+	const RUTA_FACTURAS      = '/proveedores/data/privada/facturas/';
+	const MAX_PDF            = 10485760; // 10 MB
+	const MAX_XML            = 5242880;  // 5 MB
+	const REQUIERE_PAGO_COMPLEMENTO = false; // true: el complemento solo se carga con la factura pagada (status 2); false: también con la factura pendiente de pago (status 1)
+	const VALIDAR_RFC_EMISOR = false;     // el RFC emisor del XML debe coincidir con el de la orden (si la orden lo tiene)
 
     public function iniciarDb($db) {
         if (!$this->_db) {
@@ -35,6 +45,269 @@ final class Modelos_Compras_Ordenes extends Modelo {
         }
         return $sth;
     }
+
+// Carpeta física. AJUSTA si tu raíz no es DOCUMENT_ROOT (p. ej. una constante propia).
+	private function rutaFisicaFacturas() {
+		return rtrim($_SERVER['DOCUMENT_ROOT'], '/') . self::RUTA_FACTURAS;
+	}
+ 
+	private function idProveedorSesion() {
+		$id = (int) ($_SESSION['login_id'] ?? 0);
+		if ($id <= 0) throw new InvalidArgumentException('Tu sesión expiró. Vuelve a iniciar sesión.');
+		return $id;
+	}
+ 
+	private function sqlFactura($sql, array $params = array()) {
+		$sth = $this->_db->prepare($sql);
+		if (!$sth || !$sth->execute($params)) {
+			$info = $sth ? $sth->errorInfo() : $this->_db->errorInfo();
+			throw new RuntimeException('SQL: ' . ($info[2] ?? 'error'), (int) ($info[1] ?? 0));
+		}
+		return $sth;
+	}
+ 
+	// La orden debe ser del proveedor en sesión, estar autorizada (3) y no cancelada.
+	private function ordenDelProveedor($idOrden, $bloquear = false) {
+		$idOrden = (int) $idOrden;
+		if ($idOrden <= 0) throw new InvalidArgumentException('Orden no válida.');
+ 
+		$o = $this->sqlFactura(
+			"SELECT id, folio, proveedor_razon_social, proveedor_rfc, total, status
+			   FROM oc_ordenes WHERE id = ? AND id_proveedor = ?" . ($bloquear ? ' FOR UPDATE' : ''),
+			array($idOrden, $this->idProveedorSesion())
+		)->fetch(PDO::FETCH_ASSOC);
+ 
+		if (!$o) throw new InvalidArgumentException('La orden no existe.');
+		if ((int) $o['status'] !== 3) throw new InvalidArgumentException('Solo se pueden cargar facturas de órdenes autorizadas.');
+		return $o;
+	}
+ 
+	public function getFactura($idOrden) {
+		try {
+			$o = $this->ordenDelProveedor($idOrden);
+ 
+			$f = $this->sqlFactura(
+				"SELECT status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
+						motivo_refacturacion, num_refacturaciones
+				   FROM oc_facturas WHERE id_orden = ?",
+				array((int) $o['id'])
+			)->fetch(PDO::FETCH_ASSOC);
+ 
+			if ($f) {
+				$f['status'] = (int) $f['status'];
+				$f['num_refacturaciones'] = (int) $f['num_refacturaciones'];
+				$f['monto'] = $f['monto'] !== null ? number_format((float) $f['monto'], 2) : null;
+			}
+ 
+			return array('type' => 'success', 'data' => array(
+				'id'        => (int) $o['id'],
+				'folio'     => $o['folio'],
+				'proveedor' => $o['proveedor_razon_social'],
+				'total'     => number_format((float) $o['total'], 2),
+				'factura'   => $f ?: null,
+				'requiere_pago_complemento' => self::REQUIERE_PAGO_COMPLEMENTO,
+			));
+		} catch (\Throwable $th) {
+			return $this->respuestaErrorFactura($th, 'getFactura', 'No se pudo consultar la factura.');
+		}
+	}
+ 
+	/**
+	 * $post['tipo'] = 'factura'      -> archivo_pdf + archivo_xml (sin factura o status 3)
+	 * $post['tipo'] = 'complemento'  -> archivo_complemento       (solo status 2)
+	 */
+	public function guardarFactura($idOrden, $post, $files) {
+		$nuevos = array(); // archivos ya movidos al disco, para borrarlos si algo falla
+		$transaccion = false;
+ 
+		try {
+			$tipo = $post['tipo'] ?? '';
+			if (!in_array($tipo, array('factura', 'complemento'), true)) throw new InvalidArgumentException('Operación no válida.');
+ 
+			$this->_db->beginTransaction();
+			$transaccion = true;
+ 
+			$o = $this->ordenDelProveedor($idOrden, true);
+			$f = $this->sqlFactura(
+				"SELECT id, status, archivo_pdf, archivo_xml FROM oc_facturas WHERE id_orden = ? FOR UPDATE",
+				array((int) $o['id'])
+			)->fetch(PDO::FETCH_ASSOC);
+			$status = $f ? (int) $f['status'] : 0;
+ 
+			$carpeta = $this->rutaFisicaFacturas();
+			if (!is_dir($carpeta) && !@mkdir($carpeta, 0750, true)) throw new RuntimeException('No se pudo crear la carpeta de facturas.');
+ 
+			if ($tipo === 'factura') {
+				if ($status === 1) throw new InvalidArgumentException('La factura ya fue cargada y está pendiente de pago.');
+				if ($status === 2) throw new InvalidArgumentException('La factura ya fue pagada.');
+ 
+				$pdf = $this->validarSubida($files['archivo_pdf'] ?? null, array('pdf' => array('application/pdf')), self::MAX_PDF, 'El PDF');
+				$xml = $this->validarSubida($files['archivo_xml'] ?? null, array('xml' => array('text/xml', 'application/xml', 'text/plain')), self::MAX_XML, 'El XML');
+ 
+				if ($pdf['ext'] === 'pdf' && strncmp(file_get_contents($pdf['tmp'], false, null, 0, 5), '%PDF-', 5) !== 0) {
+					throw new InvalidArgumentException('El PDF no es un archivo válido.');
+				}
+				$cfdi = $this->leerCfdi($xml['tmp']);
+ 
+				if (self::VALIDAR_RFC_EMISOR && !empty($o['proveedor_rfc'])
+					&& strcasecmp(trim($cfdi['rfc_emisor']), trim($o['proveedor_rfc'])) !== 0) {
+					throw new InvalidArgumentException('El RFC emisor del XML no coincide con el RFC del proveedor de la orden.');
+				}
+ 
+				// El mismo CFDI no puede usarse en otra orden
+				$dup = $this->sqlFactura(
+					"SELECT id FROM oc_facturas WHERE uuid_cfdi = ? AND id_orden <> ? LIMIT 1",
+					array($cfdi['uuid'], (int) $o['id'])
+				)->fetchColumn();
+				if ($dup) throw new InvalidArgumentException('Este CFDI (UUID) ya fue cargado en otra orden.');
+ 
+				$base = 'oc' . (int) $o['folio'] . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
+				$nombrePdf = $base . '_factura.pdf';
+				$nombreXml = $base . '_factura.xml';
+				$nuevos[] = $this->moverSubida($pdf['tmp'], $carpeta . $nombrePdf);
+				$nuevos[] = $this->moverSubida($xml['tmp'], $carpeta . $nombreXml);
+ 
+				if ($f) { // refacturación (status 3): regresa a pendiente
+					$this->sqlFactura(
+						"UPDATE oc_facturas
+						    SET archivo_pdf = ?, archivo_xml = ?, uuid_cfdi = ?, monto = ?,
+						        status = 1, num_refacturaciones = num_refacturaciones + 1, fecha_carga = NOW()
+						  WHERE id_orden = ? AND status = 3",
+						array($nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], (int) $o['id'])
+					);
+					$msj = 'Refacturación enviada. Quedó pendiente de pago.';
+				} else {
+					$this->sqlFactura(
+						"INSERT INTO oc_facturas (id_orden, archivo_pdf, archivo_xml, uuid_cfdi, monto) VALUES (?, ?, ?, ?, ?)",
+						array((int) $o['id'], $nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'])
+					);
+					$msj = 'Factura cargada correctamente.';
+				}
+			} else { // complemento
+				// Estatus en los que se admite el complemento (siempre debe existir la factura y no estar en refacturación)
+				$permitidos = self::REQUIERE_PAGO_COMPLEMENTO ? array(2) : array(1, 2);
+				if (!in_array($status, $permitidos, true)) {
+					if ($status === 0) throw new InvalidArgumentException('Primero debes cargar la factura (PDF y XML).');
+					if ($status === 3) throw new InvalidArgumentException('La factura está en refacturación. Primero carga la nueva factura.');
+					throw new InvalidArgumentException('El complemento de pago se habilita cuando la factura ya fue pagada.');
+				}
+ 
+				$comp = $this->validarSubida($files['archivo_complemento'] ?? null, array(
+					'pdf' => array('application/pdf'),
+					'xml' => array('text/xml', 'application/xml', 'text/plain'),
+				), self::MAX_PDF, 'El complemento');
+ 
+				if ($comp['ext'] === 'pdf' && strncmp(file_get_contents($comp['tmp'], false, null, 0, 5), '%PDF-', 5) !== 0) {
+					throw new InvalidArgumentException('El PDF no es un archivo válido.');
+				}
+				if ($comp['ext'] === 'xml') $this->leerCfdi($comp['tmp'], false); // solo verifica que sea XML bien formado
+ 
+				$nombre = 'oc' . (int) $o['folio'] . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '_complemento.' . $comp['ext'];
+				$nuevos[] = $this->moverSubida($comp['tmp'], $carpeta . $nombre);
+ 
+				$this->sqlFactura(
+					"UPDATE oc_facturas SET archivo_complemento = ?, fecha_carga_complemento = NOW() WHERE id_orden = ? AND status IN (" . implode(',', $permitidos) . ")",
+					array($nombre, (int) $o['id'])
+				);
+ 
+				// Verifica que de verdad quedó guardado (no confiar solo en que el UPDATE no lanzó error)
+				$guardado = $this->sqlFactura(
+					"SELECT archivo_complemento FROM oc_facturas WHERE id_orden = ?",
+					array((int) $o['id'])
+				)->fetchColumn();
+				if ($guardado !== $nombre) {
+					error_log('[Compras_Ordenes::guardarFactura] El UPDATE del complemento no modificó oc_facturas (id_orden=' . (int) $o['id'] . ', status=' . $status . ')');
+					throw new RuntimeException('El complemento no se registró en la base de datos.');
+				}
+				$msj = 'Complemento de pago cargado correctamente.';
+			}
+ 
+			$this->_db->commit();
+			$transaccion = false;
+			return array('type' => 'success', 'msj' => $msj);
+ 
+		} catch (\Throwable $th) {
+			if ($transaccion && $this->_db->inTransaction()) $this->_db->rollBack();
+			foreach ($nuevos as $ruta) { if ($ruta && is_file($ruta)) @unlink($ruta); }
+ 
+			// 1062 = duplicate key: dos cargas simultáneas de la misma orden
+			if ($th instanceof PDOException || ($th instanceof RuntimeException && (int) $th->getCode() === 1062)) {
+				if ((int) $th->getCode() === 1062 || strpos($th->getMessage(), '1062') !== false) {
+					return array('type' => 'error', 'msj' => 'La factura de esta orden ya fue cargada. Actualiza la página.');
+				}
+			}
+			return $this->respuestaErrorFactura($th, 'guardarFactura', 'No se pudieron guardar los archivos. Intenta nuevamente o contacta a soporte.');
+		}
+	}
+ 
+	// Valida un $_FILES[x]: subida real, tamaño, extensión permitida y MIME detectado por contenido
+	private function validarSubida($file, array $permitidos, $maxBytes, $etiqueta) {
+		if (!is_array($file) || !isset($file['error']) || is_array($file['error'])) throw new InvalidArgumentException($etiqueta . ' es obligatorio.');
+		if ($file['error'] === UPLOAD_ERR_NO_FILE) throw new InvalidArgumentException($etiqueta . ' es obligatorio.');
+		if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) throw new InvalidArgumentException($etiqueta . ' excede el tamaño permitido.');
+		if ($file['error'] !== UPLOAD_ERR_OK) throw new InvalidArgumentException('No se pudo recibir ' . strtolower($etiqueta) . '. Intenta de nuevo.');
+		if (!is_uploaded_file($file['tmp_name'])) throw new InvalidArgumentException('Archivo no válido.');
+		if ($file['size'] <= 0) throw new InvalidArgumentException($etiqueta . ' está vacío.');
+		if ($file['size'] > $maxBytes) throw new InvalidArgumentException($etiqueta . ' excede ' . round($maxBytes / 1048576) . ' MB.');
+ 
+		$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+		if (!isset($permitidos[$ext])) throw new InvalidArgumentException($etiqueta . ': formato no permitido (' . strtoupper(implode(' / ', array_keys($permitidos))) . ').');
+ 
+		$mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+		if (!in_array($mime, $permitidos[$ext], true)) throw new InvalidArgumentException($etiqueta . ': el contenido no corresponde a un archivo ' . strtoupper($ext) . '.');
+ 
+		return array('tmp' => $file['tmp_name'], 'ext' => $ext);
+	}
+ 
+	private function moverSubida($tmp, $destino) {
+		if (!move_uploaded_file($tmp, $destino)) throw new RuntimeException('No se pudo guardar el archivo en el servidor.');
+		@chmod($destino, 0640);
+		return $destino;
+	}
+ 
+	/**
+	 * Lee un CFDI (sin red, sin entidades externas). Con $estricto = true exige UUID y Total
+	 * y devuelve array(uuid, total, rfc_emisor).
+	 */
+	private function leerCfdi($ruta, $estricto = true) {
+		$xml = file_get_contents($ruta);
+		if ($xml === false || $xml === '') throw new InvalidArgumentException('El XML está vacío.');
+		if (stripos($xml, '<!DOCTYPE') !== false || stripos($xml, '<!ENTITY') !== false) throw new InvalidArgumentException('El XML no es un CFDI válido.');
+ 
+		$previo = libxml_use_internal_errors(true);
+		$dom = new DOMDocument();
+		$ok = $dom->loadXML($xml, LIBXML_NONET | LIBXML_NOBLANKS);
+		libxml_clear_errors();
+		libxml_use_internal_errors($previo);
+		if (!$ok) throw new InvalidArgumentException('El XML está mal formado.');
+		if (!$estricto) return array();
+ 
+		$xp = new DOMXPath($dom);
+		$comp = $xp->query('/*[local-name()="Comprobante"]')->item(0);
+		if (!$comp) throw new InvalidArgumentException('El XML no es un CFDI (falta el nodo Comprobante).');
+ 
+		$timbre = $xp->query('//*[local-name()="TimbreFiscalDigital"]')->item(0);
+		$uuid = $timbre ? strtoupper(trim($timbre->getAttribute('UUID'))) : '';
+		if (!preg_match('/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/', $uuid)) {
+			throw new InvalidArgumentException('El CFDI no está timbrado (no se encontró el UUID).');
+		}
+ 
+		$total = $comp->getAttribute('Total');
+		if (!is_numeric($total) || (float) $total < 0) throw new InvalidArgumentException('No se pudo leer el total del CFDI.');
+ 
+		$emisor = $xp->query('//*[local-name()="Emisor"]')->item(0);
+ 
+		return array(
+			'uuid'        => $uuid,
+			'total'       => round((float) $total, 2),
+			'rfc_emisor'  => $emisor ? $emisor->getAttribute('Rfc') : '',
+		);
+	}
+ 
+	private function respuestaErrorFactura(\Throwable $th, $contexto, $generico) {
+		if (!($th instanceof InvalidArgumentException)) error_log('[Compras_Ordenes::' . $contexto . '] ' . $th->getMessage());
+		return array('type' => 'error', 'msj' => ($th instanceof InvalidArgumentException) ? $th->getMessage() : $generico);
+	}
 
     public function getListado($context = null, $id_proveedor = null){
         $response = array();
@@ -357,7 +630,7 @@ final class Modelos_Compras_Ordenes extends Modelo {
             $partidas = $this->ejecutar(
                 "SELECT p.id, p.folio_oc, p.descripcion, p.cantidad, p.um, p.dias_entrega, p.precio_unitario,
                         p.id_unidad_negocio, ct.nombre AS unidad_negocio, p.id_area_centro_costo,
-                        p.subtotal, p.descuento, p.iva, p.isr, p.ieps, p.total
+                        p.subtotal, p.descuento, p.tasa_iva, p.iva, p.isr, p.ieps, p.total
                  FROM oc_partidas p
                  JOIN centros_trabajo ct ON ct.id = p.id_unidad_negocio
                  WHERE p.id_orden = ?
@@ -419,6 +692,21 @@ final class Modelos_Compras_Ordenes extends Modelo {
             throw new InvalidArgumentException('Los días de entrega de la partida #' . $idPartida . ' deben estar entre 1 y 255.');
         }
         return (int) $dias;
+    }
+
+    // I.V.A. = (subtotal - descuento) x tasa, en centavos enteros (misma fórmula que los JS)
+    private function ivaPartida($subtotal, $descuento, $tasa) {
+        $base = max(0, (int) round($subtotal * 100) - (int) round($descuento * 100));
+        return ((int) round($base * $tasa / 100)) / 100;
+    }
+
+    private function leerTasaIva(array $post, $idPartida) {
+        $arr = (isset($post['tasa_iva']) && is_array($post['tasa_iva'])) ? $post['tasa_iva'] : array();
+        $t = isset($arr[$idPartida]) ? filter_var($arr[$idPartida], FILTER_VALIDATE_INT) : false;
+        if ($t === false || !in_array($t, self::TASAS_IVA, true)) {
+            throw new InvalidArgumentException('La tasa de I.V.A. de la partida #' . $idPartida . ' debe ser ' . implode('% u ', self::TASAS_IVA) . '%.');
+        }
+        return (int) $t;
     }
 
     // importe = subtotal - descuento + IVA + IEPS (+/-) ISR, en centavos enteros
@@ -504,21 +792,22 @@ final class Modelos_Compras_Ordenes extends Modelo {
                 if ($precio <= 0) throw new InvalidArgumentException('El valor unitario de la partida #' . $id . ' debe ser mayor a cero.');
 
                 $desc = $this->leerMonto($post, 'descuento', $id, 'el descuento');
-                $iva  = $this->leerMonto($post, 'iva', $id, 'el I.V.A.');
+                $tasa = $this->leerTasaIva($post, $id);
                 $isr  = $this->leerMonto($post, 'isr', $id, 'el I.S.R.');
                 $ieps = $this->leerMonto($post, 'ieps', $id, 'el I.E.P.S.');
                 $dias = $this->leerDias($post, $id);
 
                 $subtotal = round((float) $p['cantidad'] * $precio, 2);
+                $iva      = $this->ivaPartida($subtotal, $desc, $tasa);
                 $total    = $this->importePartida($subtotal, $desc, $iva, $isr, $ieps);
                 if ($total < 0) throw new InvalidArgumentException('El descuento de la partida #' . $id . ' no puede dejar el importe en negativo.');
 
                 $this->ejecutar(
                     "UPDATE oc_partidas
                      SET dias_entrega = ?, precio_unitario = ?, id_area_centro_costo = ?,
-                         subtotal = ?, descuento = ?, iva = ?, isr = ?, ieps = ?, total = ?
+                         subtotal = ?, descuento = ?, tasa_iva = ?, iva = ?, isr = ?, ieps = ?, total = ?
                      WHERE id = ? AND id_orden = ?",
-                    array($dias, $precio, $idArea, $subtotal, $desc, $iva, $isr, $ieps, $total, $id, $idOrden)
+                    array($dias, $precio, $idArea, $subtotal, $desc, $tasa, $iva, $isr, $ieps, $total, $id, $idOrden)
                 );
 
                 $linea = array('subtotal' => $subtotal, 'descuento' => $desc, 'iva' => $iva, 'isr' => $isr, 'ieps' => $ieps, 'total' => $total);
@@ -615,8 +904,8 @@ final class Modelos_Compras_Ordenes extends Modelo {
         header("Content-Type: application/json");
         try {
             $filas = $this->ejecutar(
-                "SELECT status, COUNT(*) FROM oc_ordenes WHERE status IN (?, ?, ?) AND id_proveedor = ? GROUP BY status",
-                array(self::ST_GENERADA, self::ST_REVISADA, self::ST_AUTORIZADA, $_SESSION['login_id'])
+                "SELECT status, COUNT(*) FROM oc_ordenes WHERE status IN (?, ?, ?) GROUP BY status",
+                array(self::ST_GENERADA, self::ST_REVISADA, self::ST_AUTORIZADA)
             )->fetchAll(PDO::FETCH_KEY_PAIR);
 
             return array(

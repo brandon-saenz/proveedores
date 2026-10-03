@@ -2,35 +2,44 @@ var content = {
     UI_Template: false,
     // indicadores: indicadores,
     tabs: [
-        {
-            name: 'generados', 
-            title: 'Generados', 
-            total: 0, 
-            class: 'success', 
-            icon: '<i class="fa fa-clock"></i>', 
-            current: true,
-        },
-        {
-            name: 'revisadas', 
-            title: 'Revisadas', 
-            total: 0, 
-            class: 'info', 
-            icon: '<i class="fa fa-eye"></i>', 
-            current: false,
-        },
+        // {
+        //     name: 'generados', 
+        //     title: 'Generados', 
+        //     total: 0, 
+        //     class: 'success', 
+        //     icon: '<i class="fa fa-clock"></i>', 
+        //     current: true,
+        // },
+        // {
+        //     name: 'revisadas', 
+        //     title: 'Revisadas', 
+        //     total: 0, 
+        //     class: 'info', 
+        //     icon: '<i class="fa fa-eye"></i>', 
+        //     current: false,
+        // },
         {
             name: 'autorizadas', 
-            title: 'Autorizadas', 
+            title: 'Total&nbsp;', 
             total: 0, 
             class: 'primary', 
             icon: '<i class="fa fa-check"></i>', 
-            current: false,
+            current: true,
         },
     ]
 };
 
+// Base de los endpoints JSON de órdenes (mismo controlador Compras::ordenes)
+var URL_OC_API = 'https://saevalcas.mx/proveedores/compras/ordenes/';
+
+// Debe coincidir con Modelos_Compras_Ordenes::REQUIERE_PAGO_COMPLEMENTO (backend).
+// true: el complemento solo se carga con la factura pagada; false: también con la factura pendiente de pago.
+// (Aquí solo decide si el menú muestra la opción; el modal y el servidor validan con el valor del backend.)
+var REQUIERE_PAGO_COMPLEMENTO = false;
+
 document.addEventListener('DOMContentLoaded', function () {
     setterData();
+    initModalFactura();
 });
 
 function escapeHtml(valor) {
@@ -176,7 +185,7 @@ function setterData(){
 
     var inicializarKT = function(){
         if (typeof jQuery.fn.dataTable !== 'undefined') {
-            setTab('generados');
+            setTab('autorizadas');
             clearInterval(intervalID);
         }
     }
@@ -291,6 +300,7 @@ function generarColumnas(step){
         generarCelda('total'),
         generarCelda('centro_costo'),
         generarCelda('fecha'),
+        generarCelda('factura'),
     ];
 
     switch (step) {
@@ -456,21 +466,285 @@ function generarCelda(field){
                 }
             };
         break;
+        case 'factura':
+            celda = {
+                field: 'factura_status',
+                title: 'Factura',
+                sortable: false,
+                width: 140,
+                textAlign: 'center',
+                template: function(row){
+                    // factura_status lo agrega getListado (ver parche); si no viene, no se muestra nada
+                    if (typeof row.factura_status === 'undefined') return '-';
+                    var st = row.factura_status === null ? 0 : parseInt(row.factura_status, 10);
+                    var mapa = {
+                        0: ['Sin factura', 'label-light-secondary'],
+                        1: ['Pendiente de pago', 'label-light-warning'],
+                        2: ['Pagada', 'label-light-success'],
+                        3: ['Refacturación', 'label-light-danger']
+                    };
+                    var m = mapa[st] || mapa[0];
+                    var tip = (st === 3 && row.motivo_refacturacion) ? ' title=\"' + escapeHtml(row.motivo_refacturacion) + '\"' : '';
+                    return '<span class=\"label ' + m[1] + ' label-inline font-weight-bold\"' + tip + '>' + m[0] + '</span>';
+                }
+            };
+        break;
         case 'acciones':
             celda = {
                 field: 'acciones',
-                title: 'VISUALIZAR',
+                title: 'ACCIONES',
                 sortable: false,
-                width: 110,
+                width: 90,
                 textAlign: 'center',
                 template: function(row){
-                    var id = escapeHtml(row.id);
-                    return '<a href="https://saevalcas.mx/compras/ordenes/visualizar/' + id + '" target="_blank" class="btn btn-icon btn-light-danger btn-sm" title="Ver PDF">' +
-                               '<i class="la la-file-pdf"></i></a>';
+                    return accionesOC(row);
                 }
             };
         break;
     }
 
     return celda;
+}
+
+/* =====================================================================
+   MENÚ DE ACCIONES + MODAL DE FACTURAS (PDF, XML y complemento de pago)
+   ===================================================================== */
+
+function accionesOC(row){
+    var id = escapeHtml(row.id);
+    var datos = ' data-id="' + id + '" data-folio="' + escapeHtml(row.folio) + '"';
+
+    // Estatus de la factura: undefined = el listado no lo trae (se muestran todas las opciones
+    // y el modal valida con el servidor), null = sin factura, 1 pendiente, 2 pagada, 3 refacturación
+    var conocido = typeof row.factura_status !== 'undefined';
+    var st = (!conocido || row.factura_status === null) ? 0 : parseInt(row.factura_status, 10);
+
+    var items = '';
+
+    // Factura (PDF + XML)
+    var txtFactura = 'Cargar factura (PDF y XML)', icoFactura = 'las la-file-upload';
+    if (conocido && st === 3) { txtFactura = 'Cargar refacturación'; icoFactura = 'las la-sync'; }
+    if (conocido && (st === 1 || st === 2)) { txtFactura = 'Ver factura cargada'; icoFactura = 'las la-file-invoice'; }
+    items += '<li class="navi-item"><a href="javascript:;" class="navi-link btn-cargar-factura"' + datos + '>' +
+        '<span class="navi-icon"><i class="' + icoFactura + '"></i></span><span class="navi-text">' + txtFactura + '</span></a></li>';
+
+    // Complemento de pago: solo cuando la factura ya está pagada
+    if (!conocido || st === 2 || (!REQUIERE_PAGO_COMPLEMENTO && st === 1)) {
+        items += '<li class="navi-item"><a href="javascript:;" class="navi-link btn-cargar-complemento"' + datos + '>' +
+            '<span class="navi-icon"><i class="las la-file-invoice-dollar"></i></span><span class="navi-text">Cargar complemento de pago</span></a></li>';
+    }
+
+    // PDF de la orden
+    items += '<li class="navi-item"><a target="_blank" href="https://saevalcas.mx/compras/ordenes/visualizar/' + id + '" class="navi-link">' +
+        '<span class="navi-icon"><i class="las la-file-pdf"></i></span><span class="navi-text">Visualizar Orden de Compra</span></a></li>';
+
+    return '<div class="dropdown dropdown-inline">' +
+        '<a href="#" class="btn btn-clean btn-hover-light-primary btn-sm btn-icon" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">' +
+            '<i class="ki ki-bold-more-ver"></i>' +
+        '</a>' +
+        '<div class="dropdown-menu dropdown-menu-md dropdown-menu-right">' +
+            '<ul class="navi navi-hover">' +
+                '<li class="navi-header font-weight-bolder text-uppercase font-size-sm text-primary pb-2">Elige una opción:</li>' +
+                items +
+            '</ul>' +
+        '</div>' +
+    '</div>';
+}
+
+var facturaModal = { id: null, modo: 'factura', puede: false, enviando: false };
+
+function initModalFactura(){
+    $(document).on('click', '.btn-cargar-factura', function(){
+        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'factura');
+    });
+    $(document).on('click', '.btn-cargar-complemento', function(){
+        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'complemento');
+    });
+
+    // Muestra el nombre del archivo elegido en el input de Metronic
+    $(document).on('change', '#modalFacturaOC .custom-file-input', function(){
+        var nombre = this.files && this.files.length ? this.files[0].name : 'Seleccionar archivo...';
+        $(this).next('.custom-file-label').text(nombre);
+    });
+
+    $(document).on('click', '#btnGuardarFacturaOC', enviarFacturaOC);
+}
+
+function alertaFactura(tipo, html){
+    var $a = $('#facturaOC_alerta');
+    if (!html) { $a.addClass('d-none').empty(); return; }
+    $a.removeClass('d-none alert-success alert-danger alert-warning alert-info')
+      .addClass('alert-' + tipo).html(html);
+}
+
+function abrirModalFactura(id, folio, modo){
+    facturaModal = { id: id, modo: modo, puede: false, enviando: false };
+
+    $('#facturaOC_form')[0].reset();
+    $('#modalFacturaOC .custom-file-label').text('Seleccionar archivo...');
+    $('#facturaOC_progreso').addClass('d-none').find('.progress-bar').css('width', '0%');
+    $('#facturaOC_estado').empty();
+    alertaFactura(null);
+
+    $('#modalFacturaOCTitulo').text((modo === 'complemento' ? 'Complemento de pago' : 'Factura') + ' · Orden ' + folio);
+    $('.bloque-factura').toggleClass('d-none', modo !== 'factura');
+    $('.bloque-complemento').toggleClass('d-none', modo !== 'complemento');
+    $('#btnGuardarFacturaOC').addClass('d-none').prop('disabled', false).text('Guardar');
+    $('#facturaOC_cargando').removeClass('d-none');
+    $('#facturaOC_form').addClass('d-none');
+
+    $('#modalFacturaOC').modal('show');
+
+    $.ajax({
+        type: 'GET',
+        dataType: 'json',
+        url: URL_OC_API + 'get_factura/' + encodeURIComponent(id),
+        success: function(res){
+            $('#facturaOC_cargando').addClass('d-none');
+            if (!res || res.type !== 'success') {
+                alertaFactura('danger', escapeHtml(res && res.msj ? res.msj : 'No se pudo consultar la factura.'));
+                return;
+            }
+            pintarEstadoFactura(res.data);
+        },
+        error: function(xhr){
+            $('#facturaOC_cargando').addClass('d-none');
+            var msj = (xhr.responseJSON && xhr.responseJSON.msj) || 'No se pudo consultar la factura (' + xhr.status + ').';
+            alertaFactura('danger', escapeHtml(msj));
+        }
+    });
+}
+
+function pintarEstadoFactura(d){
+    var f = d.factura;               // null = aún no hay factura
+    var st = f ? parseInt(f.status, 10) : 0;
+    var modo = facturaModal.modo;
+
+    var resumen = '<div class="mb-4"><div class="font-weight-bold">' + escapeHtml(d.proveedor) + '</div>' +
+        '<div class="text-muted">Total de la orden: <strong>$' + escapeHtml(d.total) + '</strong></div></div>';
+
+    var detalle = '';
+    if (f) {
+        var etiquetas = {1: ['Pendiente de pago', 'warning'], 2: ['Pagada', 'success'], 3: ['Refacturación solicitada', 'danger']};
+        var e = etiquetas[st] || ['-', 'secondary'];
+        detalle += '<div class="mb-3"><span class="label label-light-' + e[1] + ' label-inline font-weight-bold mr-2">' + e[0] + '</span>' +
+            (f.num_refacturaciones > 0 ? '<small class="text-muted">Refacturaciones: ' + escapeHtml(f.num_refacturaciones) + '</small>' : '') + '</div>';
+        detalle += '<ul class="list-unstyled text-muted mb-3">' +
+            '<li><i class="las la-file-pdf mr-1"></i>PDF: <strong>' + (f.archivo_pdf ? 'cargado' : '-') + '</strong></li>' +
+            '<li><i class="las la-file-code mr-1"></i>XML: <strong>' + (f.archivo_xml ? 'cargado' : '-') + '</strong>' +
+                (f.uuid_cfdi ? ' · UUID ' + escapeHtml(f.uuid_cfdi) : '') + (f.monto !== null && f.monto !== '' ? ' · $' + escapeHtml(f.monto) : '') + '</li>' +
+            '<li><i class="las la-file-invoice-dollar mr-1"></i>Complemento: <strong>' + (f.archivo_complemento ? 'cargado' : 'pendiente') + '</strong></li>' +
+        '</ul>';
+        if (st === 3 && f.motivo_refacturacion) {
+            detalle += '<div class="alert alert-custom alert-light-danger py-3 mb-3"><div class="alert-text"><strong>Motivo de la refacturación:</strong> ' +
+                escapeHtml(f.motivo_refacturacion) + '</div></div>';
+        }
+    }
+    $('#facturaOC_estado').html(resumen + detalle);
+
+    var puede = false, aviso = '';
+    if (modo === 'factura') {
+        if (st === 0 || st === 3) puede = true;
+        else if (st === 1) aviso = ['info', 'La factura ya fue cargada y está pendiente de pago.'];
+        else if (st === 2) aviso = ['success', 'La factura ya fue pagada. Puedes cargar el complemento de pago desde el menú de acciones.'];
+    } else {
+        var requierePago = d.requiere_pago_complemento !== false; // el backend manda el valor vigente
+        if (st === 2 || (!requierePago && st === 1)) puede = true;
+        else if (st === 3) aviso = ['warning', 'La factura está en refacturación. Primero carga la nueva factura.'];
+        else if (st === 0) aviso = ['warning', 'Primero debes cargar la factura (PDF y XML).'];
+        else aviso = ['warning', 'El complemento de pago se habilita cuando la factura ya fue pagada.'];
+    }
+
+    facturaModal.puede = puede;
+    if (aviso) alertaFactura(aviso[0], escapeHtml(aviso[1]));
+
+    if (puede) {
+        $('#facturaOC_form').removeClass('d-none');
+        $('#btnGuardarFacturaOC').removeClass('d-none')
+            .text(modo === 'complemento' ? 'Subir complemento' : (st === 3 ? 'Enviar refacturación' : 'Subir factura'));
+    }
+}
+
+function validarArchivo(input, extensiones, maxMB, nombre){
+    if (!input.files || !input.files.length) return nombre + ': selecciona un archivo.';
+    var file = input.files[0];
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (extensiones.indexOf(ext) === -1) return nombre + ': solo se permite ' + extensiones.join(' / ').toUpperCase() + '.';
+    if (file.size > maxMB * 1024 * 1024) return nombre + ': excede ' + maxMB + ' MB.';
+    if (file.size === 0) return nombre + ': el archivo está vacío.';
+    return '';
+}
+
+function enviarFacturaOC(){
+    if (facturaModal.enviando || !facturaModal.puede) return;
+    alertaFactura(null);
+
+    var fd = new FormData();
+    var errores = [];
+
+    if (facturaModal.modo === 'factura') {
+        var pdf = document.getElementById('facturaOC_pdf');
+        var xml = document.getElementById('facturaOC_xml');
+        var e1 = validarArchivo(pdf, ['pdf'], 10, 'Factura PDF');
+        var e2 = validarArchivo(xml, ['xml'], 5, 'Factura XML');
+        if (e1) errores.push(e1);
+        if (e2) errores.push(e2);
+        if (!errores.length) { fd.append('archivo_pdf', pdf.files[0]); fd.append('archivo_xml', xml.files[0]); }
+    } else {
+        var comp = document.getElementById('facturaOC_complemento');
+        var e3 = validarArchivo(comp, ['pdf', 'xml'], 10, 'Complemento de pago');
+        if (e3) errores.push(e3);
+        if (!errores.length) fd.append('archivo_complemento', comp.files[0]);
+    }
+
+    if (errores.length) {
+        alertaFactura('danger', errores.map(escapeHtml).join('<br>'));
+        return;
+    }
+
+    fd.append('tipo', facturaModal.modo);
+
+    var $btn = $('#btnGuardarFacturaOC');
+    var $prog = $('#facturaOC_progreso');
+    facturaModal.enviando = true;
+    $btn.prop('disabled', true).addClass('spinner spinner-white spinner-right');
+    $prog.removeClass('d-none');
+
+    $.ajax({
+        type: 'POST',
+        dataType: 'json',
+        url: URL_OC_API + 'guardar_factura/' + encodeURIComponent(facturaModal.id),
+        data: fd,
+        processData: false,
+        contentType: false,
+        xhr: function(){
+            var xhr = $.ajaxSettings.xhr();
+            if (xhr.upload) {
+                xhr.upload.addEventListener('progress', function(ev){
+                    if (ev.lengthComputable) $prog.find('.progress-bar').css('width', Math.round(ev.loaded / ev.total * 100) + '%');
+                });
+            }
+            return xhr;
+        },
+        success: function(res){
+            if (res && res.type === 'success') {
+                alertaFactura('success', escapeHtml(res.msj));
+                $('#facturaOC_form').addClass('d-none');
+                $btn.addClass('d-none');
+                if (typeof datatable !== 'undefined' && datatable && typeof datatable.reload === 'function') datatable.reload();
+                setTimeout(function(){ $('#modalFacturaOC').modal('hide'); }, 1400);
+            } else {
+                alertaFactura('danger', escapeHtml(res && res.msj ? res.msj : 'No se pudo guardar.'));
+            }
+        },
+        error: function(xhr){
+            var msj = (xhr.responseJSON && xhr.responseJSON.msj) || 'Error al subir los archivos (' + xhr.status + ').';
+            alertaFactura('danger', escapeHtml(msj));
+        },
+        complete: function(){
+            facturaModal.enviando = false;
+            $btn.prop('disabled', false).removeClass('spinner spinner-white spinner-right');
+            $prog.addClass('d-none');
+        }
+    });
 }

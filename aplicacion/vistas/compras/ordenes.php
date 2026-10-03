@@ -10,7 +10,7 @@ $indicadoresArr = json_decode($indicadores, true);
     <div class="card card-custom gutter-b card-stretch">
         <div class="card-header flex-wrap border-0 pt-6 pb-0" style="margin-bottom: -0.8em;">
             <div class="card-title">
-                <h3 class="card-label">Listado de Registros
+                <h3 class="card-label">Listado de Registros</h3>
             </div>
             <div class="card-toolbar d-none d-sm-flex"></div>
         </div>
@@ -70,6 +70,66 @@ $indicadoresArr = json_decode($indicadores, true);
                 <!-- Generado dinámicamente por renderTabs() en requisiciones.js -->
             </div>
 
+        </div>
+    </div>
+</div>
+
+<!-- Modal: carga de factura (PDF + XML) y complemento de pago -->
+<div class="modal fade" id="modalFacturaOC" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalFacturaOCTitulo">Factura</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+                    <i aria-hidden="true" class="ki ki-close"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="facturaOC_cargando" class="text-center py-10">
+                    <span class="spinner spinner-primary spinner-lg"></span>
+                </div>
+                <div id="facturaOC_estado"></div>
+                <div id="facturaOC_alerta" class="alert d-none" role="alert"></div>
+
+                <form id="facturaOC_form" class="d-none" onsubmit="return false;" enctype="multipart/form-data">
+                    <div class="bloque-factura">
+                        <div class="form-group">
+                            <label class="font-weight-bold">Factura PDF <span class="text-danger">*</span></label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="facturaOC_pdf" accept=".pdf,application/pdf">
+                                <label class="custom-file-label" for="facturaOC_pdf">Seleccionar archivo...</label>
+                            </div>
+                            <span class="form-text text-muted">Formato PDF, máximo 10 MB.</span>
+                        </div>
+                        <div class="form-group">
+                            <label class="font-weight-bold">Factura XML (CFDI) <span class="text-danger">*</span></label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="facturaOC_xml" accept=".xml,text/xml,application/xml">
+                                <label class="custom-file-label" for="facturaOC_xml">Seleccionar archivo...</label>
+                            </div>
+                            <span class="form-text text-muted">Formato XML, máximo 5 MB. Se leerán el UUID y el total del CFDI.</span>
+                        </div>
+                    </div>
+                    <div class="bloque-complemento d-none">
+                        <div class="form-group">
+                            <label class="font-weight-bold">Complemento de pago <span class="text-danger">*</span></label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="facturaOC_complemento" accept=".pdf,.xml,application/pdf,text/xml,application/xml">
+                                <label class="custom-file-label" for="facturaOC_complemento">Seleccionar archivo...</label>
+                            </div>
+                            <span class="form-text text-muted">PDF o XML, máximo 10 MB.</span>
+                        </div>
+                    </div>
+                </form>
+
+                <div id="facturaOC_progreso" class="progress d-none mt-4">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light-primary font-weight-bold" data-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary font-weight-bold d-none" id="btnGuardarFacturaOC">Guardar</button>
+            </div>
         </div>
     </div>
 </div>
