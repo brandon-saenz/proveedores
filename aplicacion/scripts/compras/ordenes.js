@@ -512,7 +512,8 @@ function generarCelda(field){
 
 function accionesOC(row){
     var id = escapeHtml(row.id);
-    var datos = ' data-id="' + id + '" data-folio="' + escapeHtml(row.folio) + '"';
+    // id_sub_orden: la factura se carga por sub-orden (cada fila del listado = una OC facturable)
+    var datos = ' data-id="' + id + '" data-sub="' + escapeHtml(row.id_sub_orden || '') + '" data-folio="' + escapeHtml(row.folio) + '"';
 
     // Estatus de la factura: undefined = el listado no lo trae (se muestran todas las opciones
     // y el modal valida con el servidor), null = sin factura, 1 pendiente, 2 pagada, 3 refacturación
@@ -551,14 +552,20 @@ function accionesOC(row){
     '</div>';
 }
 
-var facturaModal = { id: null, modo: 'factura', puede: false, enviando: false };
+var facturaModal = { id: null, sub: null, modo: 'factura', puede: false, enviando: false };
+
+// /{id_orden}[/{id_sub_orden}]  (la sub-orden solo aplica a órdenes con folios anidados)
+function sufijoFactura(){
+    var s = parseInt(facturaModal.sub, 10);
+    return encodeURIComponent(facturaModal.id) + (s > 0 ? '/' + s : '');
+}
 
 function initModalFactura(){
     $(document).on('click', '.btn-cargar-factura', function(){
-        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'factura');
+        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'factura', $(this).data('sub'));
     });
     $(document).on('click', '.btn-cargar-complemento', function(){
-        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'complemento');
+        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'complemento', $(this).data('sub'));
     });
 
     // Muestra el nombre del archivo elegido en el input de Metronic
@@ -577,8 +584,8 @@ function alertaFactura(tipo, html){
       .addClass('alert-' + tipo).html(html);
 }
 
-function abrirModalFactura(id, folio, modo){
-    facturaModal = { id: id, modo: modo, puede: false, enviando: false };
+function abrirModalFactura(id, folio, modo, sub){
+    facturaModal = { id: id, sub: sub || null, modo: modo, puede: false, enviando: false };
 
     $('#facturaOC_form')[0].reset();
     $('#modalFacturaOC .custom-file-label').text('Seleccionar archivo...');
@@ -598,7 +605,8 @@ function abrirModalFactura(id, folio, modo){
     $.ajax({
         type: 'GET',
         dataType: 'json',
-        url: URL_OC_API + 'get_factura/' + encodeURIComponent(id),
+        url: URL_OC_API + 'get_factura/' + sufijoFactura(),
+        data: { id_sub_orden: parseInt(facturaModal.sub, 10) > 0 ? parseInt(facturaModal.sub, 10) : '' }, // respaldo por si la ruta no entrega el 3er segmento
         success: function(res){
             $('#facturaOC_cargando').addClass('d-none');
             if (!res || res.type !== 'success') {
@@ -616,6 +624,10 @@ function abrirModalFactura(id, folio, modo){
 }
 
 function pintarEstadoFactura(d){
+    if (d && d.ordenes) { // la orden tiene sub-órdenes y no se indicó cuál facturar
+        alertaFactura('danger', 'Esta orden tiene folios anidados. Abre el menú desde la fila del folio que vas a facturar.');
+        return;
+    }
     var f = d.factura;               // null = aún no hay factura
     var st = f ? parseInt(f.status, 10) : 0;
     var modo = facturaModal.modo;
@@ -703,6 +715,7 @@ function enviarFacturaOC(){
     }
 
     fd.append('tipo', facturaModal.modo);
+    if (parseInt(facturaModal.sub, 10) > 0) fd.append('id_sub_orden', parseInt(facturaModal.sub, 10)); // respaldo, igual que en la URL
 
     var $btn = $('#btnGuardarFacturaOC');
     var $prog = $('#facturaOC_progreso');
@@ -713,7 +726,7 @@ function enviarFacturaOC(){
     $.ajax({
         type: 'POST',
         dataType: 'json',
-        url: URL_OC_API + 'guardar_factura/' + encodeURIComponent(facturaModal.id),
+        url: URL_OC_API + 'guardar_factura/' + sufijoFactura(),
         data: fd,
         processData: false,
         contentType: false,

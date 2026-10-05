@@ -66,45 +66,146 @@ final class Modelos_Compras_Ordenes extends Modelo {
 		return $sth;
 	}
  
-	// La orden debe ser del proveedor en sesión, estar autorizada (3) y no cancelada.
-	private function ordenDelProveedor($idOrden, $bloquear = false) {
+	/**
+	 * La OC a facturar debe ser del proveedor en sesión, estar autorizada (3) y no cancelada.
+	 * Cada OC se factura por separado: una orden sin sub-órdenes, o UNA sub-orden ($idSub obligatorio
+	 * cuando la orden tiene sub-órdenes). Devuelve la orden con id_sub_orden (0 si no aplica),
+	 * folio_doc (folio de la OC: '20001' o '20001-2') y total de esa OC.
+	 */
+	private function ordenDelProveedor($idOrden, $bloquear = false, $idSub = 0) {
 		$idOrden = (int) $idOrden;
-		if ($idOrden <= 0) throw new InvalidArgumentException('Orden no válida.');
- 
+		$idSub = (int) $idSub;
+		if ($idOrden <= 0 || $idSub < 0) throw new InvalidArgumentException('Orden no válida.');
+
 		$o = $this->sqlFactura(
-			"SELECT id, folio, proveedor_razon_social, proveedor_rfc, total, status
+			"SELECT id, folio, proveedor_razon_social, proveedor_rfc, total, status, tiene_sub_ordenes
 			   FROM oc_ordenes WHERE id = ? AND id_proveedor = ?" . ($bloquear ? ' FOR UPDATE' : ''),
 			array($idOrden, $this->idProveedorSesion())
 		)->fetch(PDO::FETCH_ASSOC);
- 
+
 		if (!$o) throw new InvalidArgumentException('La orden no existe.');
-		if ((int) $o['status'] !== 3) throw new InvalidArgumentException('Solo se pueden cargar facturas de órdenes autorizadas.');
+		if ((int) $o['status'] === self::ST_CANCELADA) throw new InvalidArgumentException('La orden está cancelada.');
+
+		if ((int) $o['tiene_sub_ordenes'] === 1) {
+			if ($idSub <= 0) throw new InvalidArgumentException('Indica la orden (sub-orden) que vas a facturar.');
+			$s = $this->sqlFactura(
+				"SELECT id, folio, total, status FROM oc_sub_ordenes WHERE id = ? AND id_orden = ? AND status > 0" . ($bloquear ? ' FOR UPDATE' : ''),
+				array($idSub, $idOrden)
+			)->fetch(PDO::FETCH_ASSOC);
+			if (!$s) throw new InvalidArgumentException('La orden no existe.');
+			if ((int) $s['status'] !== self::ST_AUTORIZADA) throw new InvalidArgumentException('Solo se pueden cargar facturas de órdenes autorizadas.');
+
+			$o['id_sub_orden'] = (int) $s['id'];
+			$o['folio_doc']    = (string) $s['folio'];
+			$o['total']        = $s['total'];
+		} else {
+			if ($idSub > 0) throw new InvalidArgumentException('La orden no tiene sub-órdenes.');
+			if ((int) $o['status'] !== self::ST_AUTORIZADA) throw new InvalidArgumentException('Solo se pueden cargar facturas de órdenes autorizadas.');
+
+			$o['id_sub_orden'] = 0;
+			$o['folio_doc']    = (string) $o['folio'];
+		}
 		return $o;
 	}
- 
-	public function getFactura($idOrden) {
+
+	// Datos de la factura de una OC con formato para el portal
+	private function formatearFactura($f) {
+		if (!$f) return null;
+		$f['status'] = (int) $f['status'];
+		$f['num_refacturaciones'] = (int) $f['num_refacturaciones'];
+		$f['monto'] = $f['monto'] !== null ? number_format((float) $f['monto'], 2) : null;
+		return $f;
+	}
+
+	/**
+	 * Factura de una OC.
+	 *   Orden sin sub-órdenes, o con $idSub : devuelve la factura de esa OC (clave 'factura').
+	 *   Orden con sub-órdenes y sin $idSub  : devuelve 'ordenes' = cada sub-orden con su propia factura
+	 *                                         y si ya se puede facturar (autorizada).
+	 */
+	public function getFactura($idOrden, $idSub = null) {
 		try {
-			$o = $this->ordenDelProveedor($idOrden);
- 
+			$idSub = (int) $idSub;
+
+			if ($idSub <= 0) {
+				$info = $this->sqlFactura(
+					"SELECT id, folio, proveedor_razon_social, total, tiene_sub_ordenes
+					   FROM oc_ordenes WHERE id = ? AND id_proveedor = ?",
+					array((int) $idOrden, $this->idProveedorSesion())
+				)->fetch(PDO::FETCH_ASSOC);
+				if (!$info) throw new InvalidArgumentException('La orden no existe.');
+
+				if ((int) $info['tiene_sub_ordenes'] === 1) {
+					$subs = $this->sqlFactura(
+						"SELECT s.id, s.folio, s.total, s.status AS status_oc,
+								f.status, f.archivo_pdf, f.archivo_xml, f.archivo_complemento, f.uuid_cfdi, f.monto,
+								f.motivo_refacturacion, f.num_refacturaciones
+						   FROM oc_sub_ordenes s
+						   LEFT JOIN oc_facturas f ON f.id_orden = s.id_orden AND f.id_sub_orden = s.id
+						  WHERE s.id_orden = ? AND s.status > 0
+						  ORDER BY s.consecutivo",
+						array((int) $info['id'])
+					)->fetchAll(PDO::FETCH_ASSOC);
+
+					$ordenes = array();
+					foreach ($subs as $s) {
+						$f = $s['status'] !== null ? $this->formatearFactura(array(
+							'status' => $s['status'], 'archivo_pdf' => $s['archivo_pdf'], 'archivo_xml' => $s['archivo_xml'],
+							'archivo_complemento' => $s['archivo_complemento'], 'uuid_cfdi' => $s['uuid_cfdi'], 'monto' => $s['monto'],
+							'motivo_refacturacion' => $s['motivo_refacturacion'], 'num_refacturaciones' => $s['num_refacturaciones'],
+						)) : null;
+						$ordenes[] = array(
+							'id_sub_orden' => (int) $s['id'],
+							'folio'        => $s['folio'],
+							'total'        => number_format((float) $s['total'], 2),
+							'facturable'   => ((int) $s['status_oc'] === self::ST_AUTORIZADA),
+							'factura'      => $f,
+						);
+					}
+
+					return array('type' => 'success', 'data' => array(
+						'id'                => (int) $info['id'],
+						'folio'             => (string) $info['folio'],
+						'proveedor'         => $info['proveedor_razon_social'],
+						'total'             => number_format((float) $info['total'], 2),
+						'tiene_sub_ordenes' => true,
+						'ordenes'           => $ordenes,
+						'factura'           => null,
+						'requiere_pago_complemento' => self::REQUIERE_PAGO_COMPLEMENTO,
+					));
+				}
+			}
+
+			$o = $this->ordenDelProveedor($idOrden, false, $idSub);
+
 			$f = $this->sqlFactura(
 				"SELECT status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
 						motivo_refacturacion, num_refacturaciones
-				   FROM oc_facturas WHERE id_orden = ?",
-				array((int) $o['id'])
+				   FROM oc_facturas WHERE id_orden = ? AND id_sub_orden <=> ?",
+				array((int) $o['id'], $o['id_sub_orden'] > 0 ? (int) $o['id_sub_orden'] : null)
 			)->fetch(PDO::FETCH_ASSOC);
- 
-			if ($f) {
-				$f['status'] = (int) $f['status'];
-				$f['num_refacturaciones'] = (int) $f['num_refacturaciones'];
-				$f['monto'] = $f['monto'] !== null ? number_format((float) $f['monto'], 2) : null;
+
+			$f = $this->formatearFactura($f);
+
+			// Orden con sub-órdenes cuya factura se cargó completa antes de la separación: se muestra la global (solo lectura)
+			if (!$f && $o['id_sub_orden'] > 0) {
+				$g = $this->sqlFactura(
+					"SELECT status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
+							motivo_refacturacion, num_refacturaciones
+					   FROM oc_facturas WHERE id_orden = ? AND id_sub_orden IS NULL",
+					array((int) $o['id'])
+				)->fetch(PDO::FETCH_ASSOC);
+				if ($g) { $f = $this->formatearFactura($g); $f['global'] = true; }
 			}
- 
+
 			return array('type' => 'success', 'data' => array(
-				'id'        => (int) $o['id'],
-				'folio'     => $o['folio'],
-				'proveedor' => $o['proveedor_razon_social'],
-				'total'     => number_format((float) $o['total'], 2),
-				'factura'   => $f ?: null,
+				'id'                => (int) $o['id'],
+				'id_sub_orden'      => $o['id_sub_orden'] > 0 ? (int) $o['id_sub_orden'] : null,
+				'folio'             => $o['folio_doc'],
+				'proveedor'         => $o['proveedor_razon_social'],
+				'total'             => number_format((float) $o['total'], 2),
+				'tiene_sub_ordenes' => ((int) $o['tiene_sub_ordenes'] === 1),
+				'factura'           => $f,
 				'requiere_pago_complemento' => self::REQUIERE_PAGO_COMPLEMENTO,
 			));
 		} catch (\Throwable $th) {
@@ -113,10 +214,11 @@ final class Modelos_Compras_Ordenes extends Modelo {
 	}
  
 	/**
+	 * Cada OC se factura por separado: $idSub = sub-orden (obligatorio si la orden tiene sub-órdenes).
 	 * $post['tipo'] = 'factura'      -> archivo_pdf + archivo_xml (sin factura o status 3)
 	 * $post['tipo'] = 'complemento'  -> archivo_complemento       (solo status 2)
 	 */
-	public function guardarFactura($idOrden, $post, $files) {
+	public function guardarFactura($idOrden, $post, $files, $idSub = null) {
 		$nuevos = array(); // archivos ya movidos al disco, para borrarlos si algo falla
 		$transaccion = false;
  
@@ -127,10 +229,21 @@ final class Modelos_Compras_Ordenes extends Modelo {
 			$this->_db->beginTransaction();
 			$transaccion = true;
  
-			$o = $this->ordenDelProveedor($idOrden, true);
+			$o = $this->ordenDelProveedor($idOrden, true, $idSub);
+			$idSubFactura = $o['id_sub_orden'] > 0 ? (int) $o['id_sub_orden'] : null;
+
+			// Orden con sub-órdenes que ya tiene una factura global (anterior a la separación): no se duplica
+			if ($idSubFactura !== null) {
+				$global = $this->sqlFactura(
+					"SELECT id FROM oc_facturas WHERE id_orden = ? AND id_sub_orden IS NULL LIMIT 1",
+					array((int) $o['id'])
+				)->fetchColumn();
+				if ($global) throw new InvalidArgumentException('Esta orden ya cuenta con una factura global. Contacta a Compras para facturar por sub-orden.');
+			}
+
 			$f = $this->sqlFactura(
-				"SELECT id, status, archivo_pdf, archivo_xml FROM oc_facturas WHERE id_orden = ? FOR UPDATE",
-				array((int) $o['id'])
+				"SELECT id, status, archivo_pdf, archivo_xml FROM oc_facturas WHERE id_orden = ? AND id_sub_orden <=> ? FOR UPDATE",
+				array((int) $o['id'], $idSubFactura)
 			)->fetch(PDO::FETCH_ASSOC);
 			$status = $f ? (int) $f['status'] : 0;
  
@@ -154,14 +267,14 @@ final class Modelos_Compras_Ordenes extends Modelo {
 					throw new InvalidArgumentException('El RFC emisor del XML no coincide con el RFC del proveedor de la orden.');
 				}
  
-				// El mismo CFDI no puede usarse en otra orden
+				// El mismo CFDI no puede usarse en otra OC (ni en otra sub-orden)
 				$dup = $this->sqlFactura(
-					"SELECT id FROM oc_facturas WHERE uuid_cfdi = ? AND id_orden <> ? LIMIT 1",
-					array($cfdi['uuid'], (int) $o['id'])
+					"SELECT id FROM oc_facturas WHERE uuid_cfdi = ? AND id <> ? LIMIT 1",
+					array($cfdi['uuid'], $f ? (int) $f['id'] : 0)
 				)->fetchColumn();
 				if ($dup) throw new InvalidArgumentException('Este CFDI (UUID) ya fue cargado en otra orden.');
  
-				$base = 'oc' . (int) $o['folio'] . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
+				$base = 'oc' . preg_replace('/[^0-9A-Za-z-]/', '', $o['folio_doc']) . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
 				$nombrePdf = $base . '_factura.pdf';
 				$nombreXml = $base . '_factura.xml';
 				$nuevos[] = $this->moverSubida($pdf['tmp'], $carpeta . $nombrePdf);
@@ -172,14 +285,14 @@ final class Modelos_Compras_Ordenes extends Modelo {
 						"UPDATE oc_facturas
 						    SET archivo_pdf = ?, archivo_xml = ?, uuid_cfdi = ?, monto = ?,
 						        status = 1, num_refacturaciones = num_refacturaciones + 1, fecha_carga = NOW()
-						  WHERE id_orden = ? AND status = 3",
-						array($nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], (int) $o['id'])
+						  WHERE id = ? AND status = 3",
+						array($nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], (int) $f['id'])
 					);
 					$msj = 'Refacturación enviada. Quedó pendiente de pago.';
 				} else {
 					$this->sqlFactura(
-						"INSERT INTO oc_facturas (id_orden, archivo_pdf, archivo_xml, uuid_cfdi, monto) VALUES (?, ?, ?, ?, ?)",
-						array((int) $o['id'], $nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'])
+						"INSERT INTO oc_facturas (id_orden, id_sub_orden, archivo_pdf, archivo_xml, uuid_cfdi, monto) VALUES (?, ?, ?, ?, ?, ?)",
+						array((int) $o['id'], $idSubFactura, $nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'])
 					);
 					$msj = 'Factura cargada correctamente.';
 				}
@@ -202,21 +315,21 @@ final class Modelos_Compras_Ordenes extends Modelo {
 				}
 				if ($comp['ext'] === 'xml') $this->leerCfdi($comp['tmp'], false); // solo verifica que sea XML bien formado
  
-				$nombre = 'oc' . (int) $o['folio'] . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '_complemento.' . $comp['ext'];
+				$nombre = 'oc' . preg_replace('/[^0-9A-Za-z-]/', '', $o['folio_doc']) . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '_complemento.' . $comp['ext'];
 				$nuevos[] = $this->moverSubida($comp['tmp'], $carpeta . $nombre);
  
 				$this->sqlFactura(
-					"UPDATE oc_facturas SET archivo_complemento = ?, fecha_carga_complemento = NOW() WHERE id_orden = ? AND status IN (" . implode(',', $permitidos) . ")",
-					array($nombre, (int) $o['id'])
+					"UPDATE oc_facturas SET archivo_complemento = ?, fecha_carga_complemento = NOW() WHERE id = ? AND status IN (" . implode(',', $permitidos) . ")",
+					array($nombre, (int) $f['id'])
 				);
  
 				// Verifica que de verdad quedó guardado (no confiar solo en que el UPDATE no lanzó error)
 				$guardado = $this->sqlFactura(
-					"SELECT archivo_complemento FROM oc_facturas WHERE id_orden = ?",
-					array((int) $o['id'])
+					"SELECT archivo_complemento FROM oc_facturas WHERE id = ?",
+					array((int) $f['id'])
 				)->fetchColumn();
 				if ($guardado !== $nombre) {
-					error_log('[Compras_Ordenes::guardarFactura] El UPDATE del complemento no modificó oc_facturas (id_orden=' . (int) $o['id'] . ', status=' . $status . ')');
+					error_log('[Compras_Ordenes::guardarFactura] El UPDATE del complemento no modificó oc_facturas (id_factura=' . (int) $f['id'] . ', id_orden=' . (int) $o['id'] . ', status=' . $status . ')');
 					throw new RuntimeException('El complemento no se registró en la base de datos.');
 				}
 				$msj = 'Complemento de pago cargado correctamente.';
@@ -330,14 +443,16 @@ final class Modelos_Compras_Ordenes extends Modelo {
             $db = '`' . self::DB_OC . '`';
 
             // Reservado para restringir la visibilidad por usuario / rol si se necesita
-            $where = 'WHERE o.status = ' . (int) $statusPorPestana[$context];
+            // El estatus es de cada OC: orden sin sub-órdenes (oc_ordenes.status) o sub-orden (oc_sub_ordenes.status)
+            $statusTab = (int) $statusPorPestana[$context];
+            $filtroProv = '';
 
             // Filtro opcional por proveedor (oc_ordenes.id_proveedor). Sin parámetro = todos los proveedores.
             if ($id_proveedor !== null && $id_proveedor !== '') {
                 if (!ctype_digit((string) $id_proveedor) || (int) $id_proveedor <= 0) {
                     throw new InvalidArgumentException('Proveedor no válido.');
                 }
-                $where .= ' AND o.id_proveedor = ' . (int) $id_proveedor; // entero validado: seguro de interpolar
+                $filtroProv = ' AND o.id_proveedor = ' . (int) $id_proveedor; // entero validado: seguro de interpolar
             }
 
             // BEGIN :: INIT PARAMS
@@ -347,15 +462,17 @@ final class Modelos_Compras_Ordenes extends Modelo {
             // END :: INIT PARAMS
 
             // BEGIN :: BUSQUEDA (campo "Buscar...")
-            // Busca por folio (principal o anidado), proveedor, unidad de negocio y centro de costo
+            // Cada fila del listado es una orden SIN sub-órdenes o UNA sub-orden (folio 20001-1, 20001-2...).
+            // Busca por folio (de la fila o de la orden principal), proveedor, unidad de negocio y centro de costo
                 $BUSQUEDA = (isset($QUERY['generalSearch']) && is_string($QUERY['generalSearch']) && trim($QUERY['generalSearch']) !== '') ? trim($QUERY['generalSearch']) : null;
+                $buscaOrden = '';
+                $buscaSub = '';
                 if ($BUSQUEDA !== null) {
                     $texto = str_replace(array('\\', '%', '_'), array('\\\\', '\\%', '\\_'), $BUSQUEDA);
                     $B = $this->_db->quote('%' . $texto . '%');
-                    $where .= " AND (
+                    $buscaOrden = " AND (
                         CAST(o.folio AS CHAR) LIKE $B
                         OR o.proveedor_razon_social LIKE $B
-                        OR EXISTS (SELECT 1 FROM oc_sub_ordenes s WHERE s.id_orden = o.id AND s.folio LIKE $B)
                         OR EXISTS (
                             SELECT 1 FROM oc_partidas p
                             JOIN centros_trabajo ct ON ct.id = p.id_unidad_negocio
@@ -364,11 +481,53 @@ final class Modelos_Compras_Ordenes extends Modelo {
                             AND (CONVERT(ct.nombre USING utf8mb4) LIKE $B OR CONVERT(cta.nombre_area USING utf8mb4) LIKE $B)
                         )
                     )";
+                    $buscaSub = " AND (
+                        s.folio LIKE $B
+                        OR CAST(o.folio AS CHAR) LIKE $B
+                        OR o.proveedor_razon_social LIKE $B
+                        OR EXISTS (
+                            SELECT 1 FROM oc_partidas p
+                            JOIN centros_trabajo ct ON ct.id = p.id_unidad_negocio
+                            LEFT JOIN centro_trabajo_areas cta ON cta.id_ct_area = p.id_area_centro_costo
+                            WHERE p.id_sub_orden = s.id
+                            AND (CONVERT(ct.nombre USING utf8mb4) LIKE $B OR CONVERT(cta.nombre_area USING utf8mb4) LIKE $B)
+                        )
+                    )";
                 }
             // END :: BUSQUEDA
 
+            // BEGIN :: FILAS BASE (orden sin sub-órdenes  UNION  una fila por sub-orden vigente)
+            // Cada sub-orden tiene su propio estatus (revisión / autorización individual).
+                $CONV = 'USING utf8mb4';
+                $whereOrden = "WHERE o.status = $statusTab AND o.tiene_sub_ordenes = 0 $filtroProv";
+                $whereSub   = "WHERE o.status <> " . self::ST_CANCELADA . " AND o.tiene_sub_ordenes = 1 AND s.status = $statusTab $filtroProv";
+                $base = "SELECT o.id AS id_orden, NULL AS id_sub_orden,
+                                CONVERT(CAST(o.folio AS CHAR) $CONV) AS folio_texto, o.folio AS folio_orden, 0 AS consecutivo,
+                                CONVERT(o.proveedor_razon_social $CONV) AS proveedor, o.total AS total,
+                                o.status AS status_fila, o.fecha_creacion,
+                                o.id_usuario_revisa, o.fecha_revision, o.id_usuario_autoriza, o.fecha_autorizacion,
+                                (SELECT f.status FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden IS NULL LIMIT 1) AS factura_status,
+                                (SELECT f.motivo_refacturacion FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden IS NULL LIMIT 1) AS motivo_refacturacion
+                         FROM oc_ordenes o
+                         $whereOrden $buscaOrden
+                         UNION ALL
+                         SELECT o.id, s.id,
+                                CONVERT(s.folio $CONV), o.folio, s.consecutivo,
+                                CONVERT(o.proveedor_razon_social $CONV), s.total,
+                                s.status, o.fecha_creacion,
+                                s.id_usuario_revisa, s.fecha_revision, s.id_usuario_autoriza, s.fecha_autorizacion,
+                                -- factura propia de la sub-orden; si no tiene, la global anterior a la separación (si existe)
+                                COALESCE((SELECT f.status FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden = s.id LIMIT 1),
+                                         (SELECT f.status FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden IS NULL LIMIT 1)) AS factura_status,
+                                COALESCE((SELECT f.motivo_refacturacion FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden = s.id LIMIT 1),
+                                         (SELECT f.motivo_refacturacion FROM oc_facturas f WHERE f.id_orden = o.id AND f.id_sub_orden IS NULL LIMIT 1)) AS motivo_refacturacion
+                         FROM oc_ordenes o
+                         JOIN oc_sub_ordenes s ON s.id_orden = o.id
+                         $whereSub $buscaSub";
+            // END :: FILAS BASE
+
             // BEGIN :: META PARAMS
-                $globalTotal = (int) $this->ejecutar("SELECT COUNT(*) FROM oc_ordenes o $where")->fetchColumn();
+                $globalTotal = (int) $this->ejecutar("SELECT COUNT(*) FROM ($base) r")->fetchColumn();
 
                 $paginaActual = max(1, (int) ($PAGINATION['page'] ?? 1));
                 $rowsPorPagina = (int) ($PAGINATION['perpage'] ?? 10);
@@ -397,52 +556,52 @@ final class Modelos_Compras_Ordenes extends Modelo {
             // END :: META PARAMS
 
             // BEGIN :: ORDER BY (lista blanca: nunca se interpola el campo recibido)
+            // Desempate: orden principal descendente y sub-órdenes en su consecutivo (-1, -2, -3)
                 $columnasOrden = array(
-                    'folio'     => 'o.folio',
-                    'proveedor' => 'o.proveedor_razon_social',
-                    'total'     => 'o.total',
-                    'fecha'     => 'o.fecha_creacion',
-                    'fecha_revision'     => 'o.fecha_revision',
-                    'fecha_autorizacion' => 'o.fecha_autorizacion',
+                    'folio'     => 'r.folio_orden',
+                    'proveedor' => 'r.proveedor',
+                    'total'     => 'r.total',
+                    'fecha'     => 'r.fecha_creacion',
+                    'fecha_revision'     => 'r.fecha_revision',
+                    'fecha_autorizacion' => 'r.fecha_autorizacion',
                 );
-                $ORDER_BY = ' ORDER BY ' . ($columnasOrden[$campo] ?? 'o.folio') . ' ' . $sentido . ', o.id DESC';
+                $ORDER_BY = ' ORDER BY ' . ($columnasOrden[$campo] ?? 'r.folio_orden') . ' ' . $sentido . ', r.folio_orden DESC, r.consecutivo ASC';
             // END :: ORDER BY
 
             $LIMIT = 'LIMIT ' . (int) $meta['perpage'] . ' OFFSET ' . (int) $meta['desplazamiento'];
 
-            // LISTADO: 1) órdenes de la página
-            $ordenes = $this->ejecutar(
-                "SELECT o.id, o.folio, o.proveedor_razon_social, o.total, o.tiene_sub_ordenes, o.total_sub_ordenes, o.fecha_creacion, o.status,
-                        o.fecha_revision, o.fecha_autorizacion,
-                        CONCAT(er.nombre, ' ', er.apellidos) AS revisada_por,
-                        CONCAT(ea.nombre, ' ', ea.apellidos) AS autorizada_por
-                 FROM oc_ordenes o
-                 LEFT JOIN empleados er ON er.id = o.id_usuario_revisa
-                 LEFT JOIN empleados ea ON ea.id = o.id_usuario_autoriza
-                 $where
-                 $ORDER_BY $LIMIT"
-            )->fetchAll(PDO::FETCH_ASSOC);
+            // LISTADO: 1) filas de la página (cada una = orden o sub-orden)
+            $filas = $this->ejecutar("SELECT r.* FROM ($base) r $ORDER_BY $LIMIT")->fetchAll(PDO::FETCH_ASSOC);
 
             $data = array();
 
-            if (!empty($ordenes)) {
+            if (!empty($filas)) {
                 $ids = array();
-                foreach ($ordenes as $o) $ids[] = (int) $o['id'];
+                foreach ($filas as $f) $ids[(int) $f['id_orden']] = (int) $f['id_orden'];
+                $ids = array_values($ids);
                 $in = implode(',', array_fill(0, count($ids), '?'));
 
-                // 2) sub-órdenes (folios anidados) de esas órdenes
-                $subsPorOrden = array();
-                $subs = $this->ejecutar(
-                    "SELECT id_orden, folio, id_unidad_negocio, unidad_negocio, total_partidas, total
-                     FROM oc_sub_ordenes
-                     WHERE id_orden IN ($in)
-                     ORDER BY id_orden, consecutivo",
+                // 2) datos de la orden principal
+                $cabeceras = array();
+                $cabs = $this->ejecutar(
+                    "SELECT o.id, o.total, o.tiene_sub_ordenes, o.total_sub_ordenes
+                     FROM oc_ordenes o
+                     WHERE o.id IN ($in)",
                     $ids
                 )->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($subs as $s) $subsPorOrden[(int) $s['id_orden']][] = $s;
+                foreach ($cabs as $c) $cabeceras[(int) $c['id']] = $c;
+
+                // Nombres de quien revisó / autorizó cada fila
+                $idsEmp = array();
+                foreach ($filas as $f) {
+                    if ($f['id_usuario_revisa'])   $idsEmp[(int) $f['id_usuario_revisa']] = true;
+                    if ($f['id_usuario_autoriza']) $idsEmp[(int) $f['id_usuario_autoriza']] = true;
+                }
+                $nombres = $this->nombresEmpleados(array_keys($idsEmp));
 
                 // 3) partidas agrupadas por sub-orden / unidad de negocio / centro de costo
-                $detallePorOrden = array();
+                //    (id_sub_orden NULL => clave 0 = orden sin sub-órdenes)
+                $detallePorFila = array();
                 $detalle = $this->ejecutar(
                     "SELECT p.id_orden, p.id_sub_orden, p.folio_oc,
                             p.id_unidad_negocio, ct.nombre AS unidad_negocio,
@@ -456,37 +615,30 @@ final class Modelos_Compras_Ordenes extends Modelo {
                      ORDER BY p.id_orden, p.id_sub_orden, cta.nombre_area",
                     $ids
                 )->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($detalle as $d) $detallePorOrden[(int) $d['id_orden']][] = $d;
+                foreach ($detalle as $d) {
+                    $detallePorFila[(int) $d['id_orden']][(int) $d['id_sub_orden']][] = $d;
+                }
 
-                foreach ($ordenes as $o) {
-                    $idOrden = (int) $o['id'];
-                    $subsOrden = $subsPorOrden[$idOrden] ?? array();
-                    $detalleOrden = $detallePorOrden[$idOrden] ?? array();
+                foreach ($filas as $f) {
+                    $idOrden = (int) $f['id_orden'];
+                    $idSub = $f['id_sub_orden'] !== null ? (int) $f['id_sub_orden'] : 0;
+                    $esSub = $idSub > 0;
+                    $o = $cabeceras[$idOrden] ?? null;
+                    if (!$o) continue;
 
-                    // Sub-órdenes
-                    $subOrdenes = array();
-                    $folioPorUnidad = array();
-                    foreach ($subsOrden as $s) {
-                        $folioPorUnidad[(int) $s['id_unidad_negocio']] = $s['folio'];
-                        $subOrdenes[] = array(
-                            'folio' => $s['folio'],
-                            'unidad_negocio' => $s['unidad_negocio'],
-                            'total_partidas' => (int) $s['total_partidas'],
-                            'total' => number_format((float) $s['total'], 2, '.', ','),
-                        );
-                    }
+                    $detalleFila = $detallePorFila[$idOrden][$idSub] ?? array();
 
-                    // Unidades de negocio y centros de costo
+                    // Unidades de negocio y centros de costo de ESTA fila
                     $unidades = array();
                     $centrosCosto = array();
                     $totalPartidas = 0;
-                    foreach ($detalleOrden as $d) {
+                    foreach ($detalleFila as $d) {
                         $idUnidad = (int) $d['id_unidad_negocio'];
                         if (!isset($unidades[$idUnidad])) {
                             $unidades[$idUnidad] = array(
                                 'id' => $idUnidad,
                                 'nombre' => $d['unidad_negocio'],
-                                'folio' => $folioPorUnidad[$idUnidad] ?? null,
+                                'folio' => $f['folio_texto'],
                                 'partidas' => 0,
                                 'monto' => 0.0,
                             );
@@ -508,26 +660,35 @@ final class Modelos_Compras_Ordenes extends Modelo {
                         $unidades[$k]['monto'] = number_format($u['monto'], 2, '.', ',');
                     }
 
-                    $fechaTimeStamp = (new DateTime($o['fecha_creacion']))->getTimestamp();
+                    $fechaTimeStamp = (new DateTime($f['fecha_creacion']))->getTimestamp();
 
                     $data[] = array(
+                        // id = orden principal (las acciones de abrir / revisar / autorizar operan sobre ella)
                         'id' => $idOrden,
-                        'folio' => (string) $o['folio'],
-                        'proveedor' => $o['proveedor_razon_social'],
-                        'total' => number_format((float) $o['total'], 2, '.', ','),
+                        'id_sub_orden' => $esSub ? $idSub : null,
+                        'es_sub_orden' => $esSub,
+                        'consecutivo' => (int) $f['consecutivo'],
+                        'folio' => (string) $f['folio_texto'],
+                        'folio_orden' => (string) $f['folio_orden'],
+                        // Referencia para el PDF: folio de la sub-orden ('20001-2') o id de la orden
+                        'pdf_ref' => $esSub ? (string) $f['folio_texto'] : (string) $idOrden,
+                        'proveedor' => $f['proveedor'],
+                        'total' => number_format((float) $f['total'], 2, '.', ','),
+                        'total_orden' => number_format((float) $o['total'], 2, '.', ','),
                         'tiene_sub_ordenes' => (int) $o['tiene_sub_ordenes'] === 1,
                         'total_sub_ordenes' => (int) $o['total_sub_ordenes'],
                         'total_partidas' => $totalPartidas,
-                        'sub_ordenes' => $subOrdenes,
                         'unidades' => array_values($unidades),
                         'centros_costo' => $centrosCosto,
-                        'status' => (int) $o['status'],
-                        'status_texto' => $this->textoStatus($o['status']),
-                        'revisada_por' => trim((string) $o['revisada_por']),
-                        'fecha_revision' => $o['fecha_revision'] ? Modelos_Fecha::formatearFecha($o['fecha_revision']) : '',
-                        'autorizada_por' => trim((string) $o['autorizada_por']),
-                        'fecha_autorizacion' => $o['fecha_autorizacion'] ? Modelos_Fecha::formatearFecha($o['fecha_autorizacion']) : '',
-                        'fecha' => Modelos_Fecha::formatearFecha($o['fecha_creacion']),
+                        'factura_status' => $f['factura_status'] !== null ? (int) $f['factura_status'] : null,
+                        'motivo_refacturacion' => (string) $f['motivo_refacturacion'],
+                        'status' => (int) $f['status_fila'],
+                        'status_texto' => $this->textoStatus($f['status_fila']),
+                        'revisada_por' => $nombres[(int) $f['id_usuario_revisa']] ?? '',
+                        'fecha_revision' => $f['fecha_revision'] ? Modelos_Fecha::formatearFecha($f['fecha_revision']) : '',
+                        'autorizada_por' => $nombres[(int) $f['id_usuario_autoriza']] ?? '',
+                        'fecha_autorizacion' => $f['fecha_autorizacion'] ? Modelos_Fecha::formatearFecha($f['fecha_autorizacion']) : '',
+                        'fecha' => Modelos_Fecha::formatearFecha($f['fecha_creacion']),
                         'fechaTimeStamp' => $fechaTimeStamp,
                     );
                 }
@@ -584,8 +745,9 @@ final class Modelos_Compras_Ordenes extends Modelo {
 
     /**
      * Generada (1) -> Revisada (2). Se llama al abrir la vista de la orden.
-     * Es atómico e idempotente: solo cambia si sigue en "Generada"; una orden ya
-     * revisada, autorizada o cancelada no se toca. Devuelve true si cambió.
+     * Solo aplica a órdenes SIN sub-órdenes: cuando hay sub-órdenes cada una se revisa de forma
+     * individual con su botón del listado (revisarOrden con id de sub-orden).
+     * Es atómico e idempotente. Devuelve true si cambió.
      */
     public function marcarRevisada($idOrden) {
         try {
@@ -593,7 +755,7 @@ final class Modelos_Compras_Ordenes extends Modelo {
             $sth = $this->ejecutar(
                 "UPDATE oc_ordenes
                  SET status = ?, id_usuario_revisa = ?, fecha_revision = NOW()
-                 WHERE id = ? AND status = ?",
+                 WHERE id = ? AND status = ? AND tiene_sub_ordenes = 0",
                 array(self::ST_REVISADA, $idUsuario, (int) $idOrden, self::ST_GENERADA)
             );
             return $sth->rowCount() === 1;
@@ -601,6 +763,160 @@ final class Modelos_Compras_Ordenes extends Modelo {
             error_log('[Compras_Ordenes::marcarRevisada] ' . $th->getMessage());
             return false;
         }
+    }
+
+    // Nombre completo de empleados {id => nombre}
+    private function nombresEmpleados(array $ids) {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (empty($ids)) return array();
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $filas = $this->ejecutar("SELECT id, CONCAT(nombre, ' ', apellidos) FROM empleados WHERE id IN ($in)", $ids)->fetchAll(PDO::FETCH_KEY_PAIR);
+        return array_map('trim', $filas);
+    }
+
+    private function tieneSubAutorizada($idOrden) {
+        return (int) $this->ejecutar(
+            "SELECT COUNT(*) FROM oc_sub_ordenes WHERE id_orden = ? AND status = ?",
+            array((int) $idOrden, self::ST_AUTORIZADA)
+        )->fetchColumn() > 0;
+    }
+
+    /**
+     * La orden principal resume el estatus de sus sub-órdenes vigentes: queda en el MÁS BAJO de ellas
+     * (Revisada cuando todas están revisadas o autorizadas, Autorizada cuando todas están autorizadas).
+     * Así facturas, edición y demás procesos que leen oc_ordenes.status siguen funcionando.
+     * Debe llamarse dentro de la transacción que cambió el estatus de una sub-orden.
+     */
+    private function sincronizarEstatusOrden($idOrden) {
+        $subs = $this->ejecutar(
+            "SELECT status, id_usuario_revisa, fecha_revision, id_usuario_autoriza, fecha_autorizacion
+             FROM oc_sub_ordenes WHERE id_orden = ? AND status > 0",
+            array((int) $idOrden)
+        )->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($subs)) return;
+
+        $min = self::ST_AUTORIZADA;
+        $rev = null;
+        $aut = null;
+        foreach ($subs as $sub) {
+            $min = min($min, (int) $sub['status']);
+            if ($sub['fecha_revision'] && (!$rev || $sub['fecha_revision'] > $rev['fecha_revision'])) $rev = $sub;
+            if ($sub['fecha_autorizacion'] && (!$aut || $sub['fecha_autorizacion'] > $aut['fecha_autorizacion'])) $aut = $sub;
+        }
+
+        // Quien/cuándo de la orden = la última revisión / autorización de sus sub-órdenes
+        $conRev = ($min >= self::ST_REVISADA && $rev);
+        $conAut = ($min >= self::ST_AUTORIZADA && $aut);
+        $this->ejecutar(
+            "UPDATE oc_ordenes
+             SET status = ?, id_usuario_revisa = ?, fecha_revision = ?, id_usuario_autoriza = ?, fecha_autorizacion = ?
+             WHERE id = ? AND status > 0",
+            array($min,
+                  $conRev ? $rev['id_usuario_revisa'] : null, $conRev ? $rev['fecha_revision'] : null,
+                  $conAut ? $aut['id_usuario_autoriza'] : null, $conAut ? $aut['fecha_autorizacion'] : null,
+                  (int) $idOrden)
+        );
+    }
+
+    /**
+     * Avanza el estatus de UNA OC:  Generada -> Revisada  o  Revisada -> Autorizada.
+     *   $idSub informado : solo esa sub-orden.
+     *   $idSub vacío     : orden sin sub-órdenes -> la orden; con sub-órdenes -> todas las que estén en el
+     *                      estatus previo (lo usa el botón "Autorizar" de la vista completa de la orden).
+     */
+    private function avanzarEstatus($idOrden, $idSub, $nuevo) {
+        header("Content-Type: application/json");
+        $transaccion = false;
+        $esRevision = ($nuevo === self::ST_REVISADA);
+        $accion = $esRevision ? 'revisarOrden' : 'autorizarOrden';
+
+        try {
+            $idOrden = (int) $idOrden;
+            $idSub = ($idSub !== null && $idSub !== '') ? (int) $idSub : 0;
+            if ($idOrden <= 0 || $idSub < 0) throw new InvalidArgumentException('Orden de compra no válida.');
+            $idUsuario = $this->idUsuarioSesion();
+
+            if (!$esRevision && !$this->puedeAutorizar($idUsuario)) {
+                throw new InvalidArgumentException('No tienes permiso para autorizar órdenes de compra.');
+            }
+
+            $desde = $nuevo - 1;
+            $verbo = $esRevision ? 'revisar' : 'autorizar';
+            $colUsuario = $esRevision ? 'id_usuario_revisa' : 'id_usuario_autoriza';
+            $colFecha   = $esRevision ? 'fecha_revision' : 'fecha_autorizacion';
+            $requerido  = $esRevision ? 'Generada' : 'Revisada';
+
+            $this->_db->beginTransaction();
+            $transaccion = true;
+
+            $o = $this->ejecutar("SELECT folio, status, tiene_sub_ordenes FROM oc_ordenes WHERE id = ? FOR UPDATE", array($idOrden))->fetch(PDO::FETCH_ASSOC);
+            if (!$o) throw new InvalidArgumentException('La orden de compra no existe.');
+            if ((int) $o['status'] === self::ST_CANCELADA) throw new InvalidArgumentException('La orden está cancelada y no se puede ' . $verbo . '.');
+
+            if ((int) $o['tiene_sub_ordenes'] !== 1) {
+                // ---- Orden sin sub-órdenes ----
+                if ($idSub > 0) throw new InvalidArgumentException('La orden no tiene sub-órdenes.');
+                $status = (int) $o['status'];
+                if ($status === $nuevo) throw new InvalidArgumentException('La orden ya estaba ' . ($esRevision ? 'revisada.' : 'autorizada.'));
+                if ($status !== $desde) throw new InvalidArgumentException('La orden debe estar en estatus ' . $requerido . ' para ' . $verbo . 'se.');
+
+                $this->ejecutar(
+                    "UPDATE oc_ordenes SET status = ?, $colUsuario = ?, $colFecha = NOW() WHERE id = ? AND status = ?",
+                    array($nuevo, $idUsuario, $idOrden, $desde)
+                );
+                $etiqueta = $o['folio'];
+            } else {
+                // ---- Orden con sub-órdenes: el estatus es de cada sub-orden ----
+                $sql = "SELECT id, folio, status FROM oc_sub_ordenes WHERE id_orden = ? AND status > 0";
+                $params = array($idOrden);
+                if ($idSub > 0) { $sql .= " AND id = ?"; $params[] = $idSub; }
+                $subs = $this->ejecutar($sql . " ORDER BY consecutivo FOR UPDATE", $params)->fetchAll(PDO::FETCH_ASSOC);
+                if (empty($subs)) throw new InvalidArgumentException($idSub > 0 ? 'La sub-orden no existe o está cancelada.' : 'La orden no tiene sub-órdenes vigentes.');
+
+                $aplicables = array();
+                foreach ($subs as $sub) if ((int) $sub['status'] === $desde) $aplicables[] = $sub;
+
+                if (empty($aplicables)) {
+                    if ($idSub > 0) {
+                        if ((int) $subs[0]['status'] === $nuevo) throw new InvalidArgumentException('La orden ' . $subs[0]['folio'] . ' ya estaba ' . ($esRevision ? 'revisada.' : 'autorizada.'));
+                        throw new InvalidArgumentException('La orden ' . $subs[0]['folio'] . ' debe estar en estatus ' . $requerido . ' para ' . $verbo . 'se.');
+                    }
+                    throw new InvalidArgumentException('Ninguna sub-orden está en estatus ' . $requerido . '.');
+                }
+
+                $idsAplicar = array();
+                foreach ($aplicables as $sub) $idsAplicar[] = (int) $sub['id'];
+                $in = implode(',', array_fill(0, count($idsAplicar), '?'));
+                $this->ejecutar(
+                    "UPDATE oc_sub_ordenes SET status = ?, $colUsuario = ?, $colFecha = NOW() WHERE id IN ($in) AND status = ?",
+                    array_merge(array($nuevo, $idUsuario), $idsAplicar, array($desde))
+                );
+
+                $this->sincronizarEstatusOrden($idOrden);
+                $etiqueta = count($aplicables) === 1 ? $aplicables[0]['folio'] : $o['folio'] . ' (' . count($aplicables) . ' sub-órdenes)';
+            }
+
+            $this->_db->commit();
+            $transaccion = false;
+
+            return array('type' => 'success', 'msj' => 'Orden de compra ' . $etiqueta . ($esRevision ? ' marcada como revisada.' : ' autorizada.'));
+
+        } catch (\Throwable $th) {
+            if ($transaccion && $this->_db->inTransaction()) $this->_db->rollBack();
+            return $this->respuestaError($th, $accion, $esRevision
+                ? 'No se pudo marcar la orden como revisada. Intenta nuevamente o contacta a soporte.'
+                : 'No se pudo autorizar la orden. Intenta nuevamente o contacta a soporte.');
+        }
+    }
+
+    /** Generada (1) -> Revisada (2) de una OC (orden sin sub-órdenes o una sub-orden). */
+    public function revisarOrden($idOrden, $idSub = null) {
+        return $this->avanzarEstatus($idOrden, $idSub, self::ST_REVISADA);
+    }
+
+    /** Revisada (2) -> Autorizada (3) de una OC. Solo usuarios permitidos (AUTORIZAN). */
+    public function autorizarOrden($idOrden, $idSub = null) {
+        return $this->avanzarEstatus($idOrden, $idSub, self::ST_AUTORIZADA);
     }
 
     /**
@@ -639,7 +955,8 @@ final class Modelos_Compras_Ordenes extends Modelo {
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $status   = (int) $o['status'];
-            $editable = ($status === self::ST_GENERADA || $status === self::ST_REVISADA);
+            // Con una sub-orden ya autorizada no se edita la orden (sus importes quedan firmes)
+            $editable = ($status === self::ST_GENERADA || $status === self::ST_REVISADA) && !$this->tieneSubAutorizada($idOrden);
 
             return array(
                 'type' => 'success',
@@ -747,6 +1064,7 @@ final class Modelos_Compras_Ordenes extends Modelo {
             $status = (int) $o['status'];
             if ($status === self::ST_AUTORIZADA) throw new InvalidArgumentException('La orden ya fue autorizada y no se puede modificar.');
             if ($status === self::ST_CANCELADA)  throw new InvalidArgumentException('La orden está cancelada y no se puede modificar.');
+            if ($this->tieneSubAutorizada($idOrden)) throw new InvalidArgumentException('La orden tiene sub-órdenes autorizadas y ya no se puede modificar.');
 
             $partidas = $this->ejecutar(
                 "SELECT id, id_sub_orden, id_unidad_negocio, id_area_centro_costo, cantidad
@@ -854,58 +1172,23 @@ final class Modelos_Compras_Ordenes extends Modelo {
     }
 
     /**
-     * Revisada (2) -> Autorizada (3). Solo desde Revisada y solo usuarios permitidos.
-     */
-    public function autorizarOrden($idOrden) {
-        header("Content-Type: application/json");
-        $transaccion = false;
-
-        try {
-            $idOrden = (int) $idOrden;
-            if ($idOrden <= 0) throw new InvalidArgumentException('Orden de compra no válida.');
-            $idUsuario = $this->idUsuarioSesion();
-
-            if (!$this->puedeAutorizar($idUsuario)) {
-                throw new InvalidArgumentException('No tienes permiso para autorizar órdenes de compra.');
-            }
-
-            $this->_db->beginTransaction();
-            $transaccion = true;
-
-            $o = $this->ejecutar("SELECT folio, status FROM oc_ordenes WHERE id = ? FOR UPDATE", array($idOrden))->fetch(PDO::FETCH_ASSOC);
-            if (!$o) throw new InvalidArgumentException('La orden de compra no existe.');
-
-            $status = (int) $o['status'];
-            if ($status === self::ST_AUTORIZADA) throw new InvalidArgumentException('La orden ya estaba autorizada.');
-            if ($status === self::ST_CANCELADA)  throw new InvalidArgumentException('La orden está cancelada y no se puede autorizar.');
-            if ($status !== self::ST_REVISADA)   throw new InvalidArgumentException('La orden debe estar en estatus Revisada para autorizarse.');
-
-            $this->ejecutar(
-                "UPDATE oc_ordenes SET status = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ? AND status = ?",
-                array(self::ST_AUTORIZADA, $idUsuario, $idOrden, self::ST_REVISADA)
-            );
-
-            $this->_db->commit();
-            $transaccion = false;
-
-            return array('type' => 'success', 'msj' => 'Orden de compra ' . $o['folio'] . ' autorizada.');
-
-        } catch (\Throwable $th) {
-            if ($transaccion && $this->_db->inTransaction()) $this->_db->rollBack();
-            return $this->respuestaError($th, 'autorizarOrden', 'No se pudo autorizar la orden. Intenta nuevamente o contacta a soporte.');
-        }
-    }
-
-    /**
-     * Total de órdenes por pestaña del listado (una sola consulta).
+     * Total de filas por pestaña del listado (una sola consulta). Una orden con sub-órdenes
+     * cuenta una fila por cada sub-orden vigente (con su propio estatus), igual que el datatable.
      * Las claves coinciden con el nombre de cada pestaña en ordenes.js.
      */
     public function getIndicadores() {
         header("Content-Type: application/json");
         try {
             $filas = $this->ejecutar(
-                "SELECT status, COUNT(*) FROM oc_ordenes WHERE status IN (?, ?, ?) GROUP BY status",
-                array(self::ST_GENERADA, self::ST_REVISADA, self::ST_AUTORIZADA)
+                "SELECT t.st, COUNT(*) FROM (
+                    SELECT o.status AS st FROM oc_ordenes o
+                    WHERE o.tiene_sub_ordenes = 0 AND o.status IN (?, ?, ?)
+                    UNION ALL
+                    SELECT s.status FROM oc_sub_ordenes s
+                    JOIN oc_ordenes o ON o.id = s.id_orden
+                    WHERE o.tiene_sub_ordenes = 1 AND o.status <> 0 AND s.status IN (?, ?, ?)
+                 ) t GROUP BY t.st",
+                array(self::ST_GENERADA, self::ST_REVISADA, self::ST_AUTORIZADA, self::ST_GENERADA, self::ST_REVISADA, self::ST_AUTORIZADA)
             )->fetchAll(PDO::FETCH_KEY_PAIR);
 
             return array(
@@ -961,7 +1244,8 @@ final class Modelos_Compras_Ordenes extends Modelo {
         $o = $this->ejecutar(
             "SELECT id, folio, proveedor_razon_social, proveedor_rfc, dias_entrega, observaciones,
                     tiene_sub_ordenes, total_sub_ordenes, subtotal, descuento, iva, isr, ieps, retencion_iva, total,
-                    status, id_usuario_crea, fecha_creacion, motivo_cancelacion
+                    status, id_usuario_crea, fecha_creacion, motivo_cancelacion,
+                    id_usuario_revisa, fecha_revision, id_usuario_autoriza, fecha_autorizacion
              FROM oc_ordenes WHERE id = ?",
             array($idOrden)
         )->fetch(PDO::FETCH_ASSOC);
@@ -969,7 +1253,8 @@ final class Modelos_Compras_Ordenes extends Modelo {
 
         // 2) Sub-órdenes
         $subs = $this->ejecutar(
-            "SELECT id, folio, unidad_negocio, total_partidas, subtotal, descuento, iva, isr, ieps, total
+            "SELECT id, folio, unidad_negocio, total_partidas, subtotal, descuento, iva, isr, ieps, total,
+                    status, id_usuario_revisa, fecha_revision, id_usuario_autoriza, fecha_autorizacion
              FROM oc_sub_ordenes WHERE id_orden = ? ORDER BY consecutivo",
             array($idOrden)
         )->fetchAll(PDO::FETCH_ASSOC);
@@ -1047,6 +1332,18 @@ final class Modelos_Compras_Ordenes extends Modelo {
         // 6) Quien genera la orden
         $genera = $this->ejecutar("SELECT CONCAT(nombre, ' ', apellidos) FROM empleados WHERE id = ?", array((int) $o['id_usuario_crea']))->fetchColumn();
 
+        // 6b) Quien revisa y autoriza: los de la sub-orden si se imprime solo una; si no, los de la orden
+        $fuenteFirmas = $subSel ?: $o;
+        $nombresFirma = $this->nombresEmpleados(array((int) $fuenteFirmas['id_usuario_revisa'], (int) $fuenteFirmas['id_usuario_autoriza']));
+        $revisa = array(
+            'nombre' => $nombresFirma[(int) $fuenteFirmas['id_usuario_revisa']] ?? '',
+            'fecha'  => $fuenteFirmas['fecha_revision'],
+        );
+        $autoriza = array(
+            'nombre' => $nombresFirma[(int) $fuenteFirmas['id_usuario_autoriza']] ?? '',
+            'fecha'  => $fuenteFirmas['fecha_autorizacion'],
+        );
+
         // Importes: los de la sub-orden si se imprime solo una
         if ($subSel) {
             $imp = array(
@@ -1084,6 +1381,8 @@ final class Modelos_Compras_Ordenes extends Modelo {
             'resumen' => array_values($resumen),
             'requisiciones' => $requisiciones,
             'genera' => array('nombre' => $genera ?: '', 'fecha' => $o['fecha_creacion']),
+            'revisa' => $revisa,
+            'autoriza' => $autoriza,
         );
     }
 
@@ -1456,9 +1755,7 @@ HTML;
         $conLetra   = $this->h($this->importeConLetra($o['total']));
         $resumen    = $this->filasResumen($d['resumen']);
 
-        $genera = $d['genera']['nombre'] !== ''
-            ? $this->h($d['genera']['nombre']) . '<br>' . $this->h($this->fechaPdf($d['genera']['fecha'], true))
-            : '&nbsp;<br>&nbsp;';
+        $firmas = $this->bloqueFirmas($d);
 
         return <<<HTML
 <table width="100%">
@@ -1530,6 +1827,34 @@ HTML;
     <tr><td class="lbl" style="text-align:left;">Importe con letra</td></tr>
     <tr><td style="padding:5px 4px;font-size:8.5pt;">{$conLetra}</td></tr>
 </table>
+<br>
+{$firmas}
 HTML;
+    }
+
+    /**
+     * Bloque final del PDF: quién generó, revisó y autorizó la OC (con fecha y hora).
+     * Mientras falte revisión / autorización se imprime "Pendiente".
+     */
+    private function bloqueFirmas(array $d) {
+        $celda = function ($titulo, array $p) {
+            $tiene = ($p['nombre'] !== '' && !empty($p['fecha']));
+            $nombre = $tiene ? $this->h($p['nombre']) : '<span style="color:#888888;">Pendiente</span>';
+            $fecha  = $tiene ? $this->h($this->fechaPdf($p['fecha'], true)) : '&nbsp;';
+            return '<td width="32%" valign="top">' .
+                '<table width="100%">' .
+                    '<tr><td class="lbl">' . $titulo . '</td></tr>' .
+                    '<tr><td class="val" style="padding-top:14px;border-bottom:1px solid #000;font-size:9pt;"><strong>' . $nombre . '</strong></td></tr>' .
+                    '<tr><td class="val small">' . $fecha . '</td></tr>' .
+                '</table></td>';
+        };
+
+        return '<table width="100%" style="page-break-inside:avoid;"><tr>' .
+            $celda('Generó', $d['genera']) .
+            '<td width="2%"></td>' .
+            $celda('Revisó', $d['revisa']) .
+            '<td width="2%"></td>' .
+            $celda('Autorizó', $d['autoriza']) .
+        '</tr></table>';
     }
 }

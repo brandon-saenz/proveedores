@@ -4,9 +4,13 @@ final class Compras extends Controlador {
 		$acceso = $this->cargarModelo('acceso');
 		$modelo = $this->cargarModelo('Compras_Ordenes');
 
+		// Sub-orden para facturas: 3er segmento de la URL o, si no llega, id_sub_orden por GET/POST
+		$subFactura = ($status !== null && $status !== '') ? $status : ($_POST['id_sub_orden'] ?? $_GET['id_sub_orden'] ?? null);
+
 		switch ($accion) {
-			case 'get_factura': echo json_encode($modelo->getFactura($id)); die; break;
-			case 'guardar_factura': echo json_encode($modelo->guardarFactura($id, $_POST, $_FILES)); die; break;
+			// $status = id de la sub-orden (opcional; obligatorio si la orden tiene sub-órdenes): /get_factura/{id_orden}[/{id_sub_orden}]
+			case 'get_factura': echo json_encode($modelo->getFactura($id, $subFactura)); die; break;
+			case 'guardar_factura': echo json_encode($modelo->guardarFactura($id, $_POST, $_FILES, $subFactura)); die; break;
 			// /compras/ordenes/get_listado/{pestaña}[/{id_proveedor}]  (el proveedor es opcional)
 			case 'get_listado': echo json_encode($modelo->getListado($id, $status)); die; break;
 			case 'get_indicadores':
@@ -49,7 +53,7 @@ final class Compras extends Controlador {
 				}
 				if ($accion === 'get_orden') echo json_encode($modelo->getOrden($id));
 				if ($accion === 'guardar_orden') echo json_encode($modelo->guardarOrden($id, $_POST));
-				if ($accion === 'autorizar') echo json_encode($modelo->autorizarOrden($id));
+				if ($accion === 'autorizar') echo json_encode($modelo->autorizarOrden($id, $status)); // $status = id de la sub-orden (opcional)
 				die;
 			break;
 		}
