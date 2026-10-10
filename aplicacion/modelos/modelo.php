@@ -26,9 +26,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
 	const MAX_PDF            = 10485760; // 10 MB
 	const MAX_XML            = 5242880;  // 5 MB
 	const REQUIERE_PAGO_COMPLEMENTO = false; // true: el complemento solo se carga con la factura pagada (status 2); false: también con la factura pendiente de pago (status 1)
-	const COMPLEMENTO_PDF_OBLIGATORIO = false; // true: el complemento exige XML + PDF; false: el XML es obligatorio y el PDF opcional
-	const TOLERANCIA_SALDO   = 0.01;     // diferencia (en pesos) que se tolera al comparar lo pagado contra el total de la factura
-	const VALIDAR_TIPO_INGRESO = true;   // la factura debe ser un CFDI de ingreso (TipoDeComprobante = I)
 	const VALIDAR_RFC_EMISOR = false;     // el RFC emisor del XML debe coincidir con el de la orden (si la orden lo tiene)
 
     public function iniciarDb($db) {
@@ -182,23 +179,23 @@ final class Modelos_Compras_Ordenes extends Modelo {
 			$o = $this->ordenDelProveedor($idOrden, false, $idSub);
 
 			$f = $this->sqlFactura(
-				"SELECT id, metodo_pago, forma_pago, moneda, status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
+				"SELECT status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
 						motivo_refacturacion, num_refacturaciones
 				   FROM oc_facturas WHERE id_orden = ? AND id_sub_orden <=> ?",
 				array((int) $o['id'], $o['id_sub_orden'] > 0 ? (int) $o['id_sub_orden'] : null)
 			)->fetch(PDO::FETCH_ASSOC);
 
-			$f = $f ? $this->formatearFacturaCompleta($f) : null;
+			$f = $this->formatearFactura($f);
 
 			// Orden con sub-órdenes cuya factura se cargó completa antes de la separación: se muestra la global (solo lectura)
 			if (!$f && $o['id_sub_orden'] > 0) {
 				$g = $this->sqlFactura(
-					"SELECT id, metodo_pago, forma_pago, moneda, status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
+					"SELECT status, archivo_pdf, archivo_xml, archivo_complemento, uuid_cfdi, monto,
 							motivo_refacturacion, num_refacturaciones
 					   FROM oc_facturas WHERE id_orden = ? AND id_sub_orden IS NULL",
 					array((int) $o['id'])
 				)->fetch(PDO::FETCH_ASSOC);
-				if ($g) { $f = $this->formatearFacturaCompleta($g); $f['global'] = true; }
+				if ($g) { $f = $this->formatearFactura($g); $f['global'] = true; }
 			}
 
 			return array('type' => 'success', 'data' => array(
@@ -210,7 +207,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
 				'tiene_sub_ordenes' => ((int) $o['tiene_sub_ordenes'] === 1),
 				'factura'           => $f,
 				'requiere_pago_complemento' => self::REQUIERE_PAGO_COMPLEMENTO,
-				'complemento_pdf_obligatorio' => self::COMPLEMENTO_PDF_OBLIGATORIO,
 			));
 		} catch (\Throwable $th) {
 			return $this->respuestaErrorFactura($th, 'getFactura', 'No se pudo consultar la factura.');
@@ -246,7 +242,7 @@ final class Modelos_Compras_Ordenes extends Modelo {
 			}
 
 			$f = $this->sqlFactura(
-				"SELECT id, status, archivo_pdf, archivo_xml, uuid_cfdi, monto, metodo_pago FROM oc_facturas WHERE id_orden = ? AND id_sub_orden <=> ? FOR UPDATE",
+				"SELECT id, status, archivo_pdf, archivo_xml FROM oc_facturas WHERE id_orden = ? AND id_sub_orden <=> ? FOR UPDATE",
 				array((int) $o['id'], $idSubFactura)
 			)->fetch(PDO::FETCH_ASSOC);
 			$status = $f ? (int) $f['status'] : 0;
@@ -265,12 +261,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
 					throw new InvalidArgumentException('El PDF no es un archivo válido.');
 				}
 				$cfdi = $this->leerCfdi($xml['tmp']);
-				if (self::VALIDAR_TIPO_INGRESO && $cfdi['tipo'] !== 'I') {
-					throw new InvalidArgumentException('El XML debe ser una factura (CFDI de ingreso). Los complementos de pago se cargan desde la opción "Tipo de factura y complementos".');
-				}
-				if (!in_array($cfdi['metodo_pago'], array('PUE', 'PPD'), true)) {
-					throw new InvalidArgumentException('El CFDI no indica el método de pago (PUE o PPD).');
-				}
  
 				if (self::VALIDAR_RFC_EMISOR && !empty($o['proveedor_rfc'])
 					&& strcasecmp(trim($cfdi['rfc_emisor']), trim($o['proveedor_rfc'])) !== 0) {
@@ -293,100 +283,56 @@ final class Modelos_Compras_Ordenes extends Modelo {
 				if ($f) { // refacturación (status 3): regresa a pendiente
 					$this->sqlFactura(
 						"UPDATE oc_facturas
-						    SET archivo_pdf = ?, archivo_xml = ?, uuid_cfdi = ?, monto = ?, metodo_pago = ?, forma_pago = ?, moneda = ?,
+						    SET archivo_pdf = ?, archivo_xml = ?, uuid_cfdi = ?, monto = ?,
 						        status = 1, num_refacturaciones = num_refacturaciones + 1, fecha_carga = NOW()
 						  WHERE id = ? AND status = 3",
-						array($nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], $cfdi['metodo_pago'], $cfdi['forma_pago'] !== '' ? $cfdi['forma_pago'] : null, $cfdi['moneda'] !== '' ? $cfdi['moneda'] : null, (int) $f['id'])
+						array($nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], (int) $f['id'])
 					);
 					$msj = 'Refacturación enviada. Quedó pendiente de pago.';
 				} else {
 					$this->sqlFactura(
-						"INSERT INTO oc_facturas (id_orden, id_sub_orden, archivo_pdf, archivo_xml, uuid_cfdi, monto, metodo_pago, forma_pago, moneda) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-						array((int) $o['id'], $idSubFactura, $nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'], $cfdi['metodo_pago'], $cfdi['forma_pago'] !== '' ? $cfdi['forma_pago'] : null, $cfdi['moneda'] !== '' ? $cfdi['moneda'] : null)
+						"INSERT INTO oc_facturas (id_orden, id_sub_orden, archivo_pdf, archivo_xml, uuid_cfdi, monto) VALUES (?, ?, ?, ?, ?, ?)",
+						array((int) $o['id'], $idSubFactura, $nombrePdf, $nombreXml, $cfdi['uuid'], $cfdi['total'])
 					);
 					$msj = 'Factura cargada correctamente.';
 				}
-			} else { // complemento de pago: solo facturas PPD; se carga uno por cada pago / parcialidad
+			} else { // complemento
+				// Estatus en los que se admite el complemento (siempre debe existir la factura y no estar en refacturación)
 				$permitidos = self::REQUIERE_PAGO_COMPLEMENTO ? array(2) : array(1, 2);
 				if (!in_array($status, $permitidos, true)) {
 					if ($status === 0) throw new InvalidArgumentException('Primero debes cargar la factura (PDF y XML).');
 					if ($status === 3) throw new InvalidArgumentException('La factura está en refacturación. Primero carga la nueva factura.');
 					throw new InvalidArgumentException('El complemento de pago se habilita cuando la factura ya fue pagada.');
 				}
-
-				// Solo las facturas PPD llevan complemento
-				$res = $this->resumenComplementos($f);
-				if ($res['metodo_pago'] === 'PUE') throw new InvalidArgumentException('Esta factura es PUE (pago en una sola exhibición): no lleva complemento de pago.');
-				if ($res['metodo_pago'] !== 'PPD') throw new InvalidArgumentException('No se pudo determinar el método de pago de la factura (PUE / PPD).');
-				if ($res['completo']) throw new InvalidArgumentException('La factura ya quedó cubierta con los complementos cargados.');
-
-				$xmlC = $this->validarSubida($files['archivo_complemento_xml'] ?? null, array('xml' => array('text/xml', 'application/xml', 'text/plain')), self::MAX_XML, 'El XML del complemento');
-				$pdfC = null;
-				if (self::COMPLEMENTO_PDF_OBLIGATORIO || $this->hayArchivoSubido($files['archivo_complemento_pdf'] ?? null)) {
-					$pdfC = $this->validarSubida($files['archivo_complemento_pdf'] ?? null, array('pdf' => array('application/pdf')), self::MAX_PDF, 'El PDF del complemento');
-					if (strncmp(file_get_contents($pdfC['tmp'], false, null, 0, 5), '%PDF-', 5) !== 0) {
-						throw new InvalidArgumentException('El PDF del complemento no es un archivo válido.');
-					}
+ 
+				$comp = $this->validarSubida($files['archivo_complemento'] ?? null, array(
+					'pdf' => array('application/pdf'),
+					'xml' => array('text/xml', 'application/xml', 'text/plain'),
+				), self::MAX_PDF, 'El complemento');
+ 
+				if ($comp['ext'] === 'pdf' && strncmp(file_get_contents($comp['tmp'], false, null, 0, 5), '%PDF-', 5) !== 0) {
+					throw new InvalidArgumentException('El PDF no es un archivo válido.');
 				}
-
-				// El complemento es un CFDI tipo "P" que debe relacionar el UUID de ESTA factura
-				$cp = $this->leerComplementoPago($xmlC['tmp']);
-				$uuidF = strtoupper((string) $f['uuid_cfdi']);
-				$num = function ($v) { return ($v === '' || !is_numeric($v)) ? null : round((float) $v, 2); };
-
-				$monto = 0.0; $parc = 0; $parcMin = PHP_INT_MAX; $fechaRaw = null; $saldoAnt = null; $saldoIns = null; $coincide = false;
-				foreach ($cp['docs'] as $d) {
-					if ($d['uuid'] !== $uuidF) continue;
-					$coincide = true;
-					$monto += (float) $d['imp_pagado'];
-					if ($fechaRaw === null) $fechaRaw = $d['fecha_pago'];
-					if ($d['parcialidad'] >= $parc)    { $parc = $d['parcialidad'];    $saldoIns = $num($d['saldo_insoluto']); }
-					if ($d['parcialidad'] <= $parcMin) { $parcMin = $d['parcialidad']; $saldoAnt = $num($d['saldo_ant']); }
-				}
-				if (!$coincide) throw new InvalidArgumentException('El complemento no hace referencia a esta factura (UUID ' . $uuidF . ').');
-
-				$monto = round($monto, 2);
-				if ($monto <= 0) throw new InvalidArgumentException('No se pudo leer el monto pagado del complemento.');
-				if ($monto > $res['saldo'] + self::TOLERANCIA_SALDO) {
-					throw new InvalidArgumentException('El monto del complemento ($' . number_format($monto, 2) . ') excede el saldo pendiente de la factura ($' . number_format($res['saldo'], 2) . ').');
-				}
-				if ($parc > 0 && in_array($parc, $res['parcialidades'], true)) throw new InvalidArgumentException('La parcialidad ' . $parc . ' ya fue cargada.');
-
-				$dup = $this->sqlFactura(
-					"SELECT id FROM oc_facturas_complementos WHERE id_factura = ? AND uuid_complemento = ? LIMIT 1",
-					array((int) $f['id'], $cp['uuid'])
+				if ($comp['ext'] === 'xml') $this->leerCfdi($comp['tmp'], false); // solo verifica que sea XML bien formado
+ 
+				$nombre = 'oc' . preg_replace('/[^0-9A-Za-z-]/', '', $o['folio_doc']) . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '_complemento.' . $comp['ext'];
+				$nuevos[] = $this->moverSubida($comp['tmp'], $carpeta . $nombre);
+ 
+				$this->sqlFactura(
+					"UPDATE oc_facturas SET archivo_complemento = ?, fecha_carga_complemento = NOW() WHERE id = ? AND status IN (" . implode(',', $permitidos) . ")",
+					array($nombre, (int) $f['id'])
+				);
+ 
+				// Verifica que de verdad quedó guardado (no confiar solo en que el UPDATE no lanzó error)
+				$guardado = $this->sqlFactura(
+					"SELECT archivo_complemento FROM oc_facturas WHERE id = ?",
+					array((int) $f['id'])
 				)->fetchColumn();
-				if ($dup) throw new InvalidArgumentException('Este complemento (UUID) ya fue cargado en esta factura.');
-
-				$ts = $fechaRaw ? strtotime($fechaRaw) : false;
-				$fechaPago = $ts ? date('Y-m-d H:i:s', $ts) : null;
-
-				$base = 'oc' . preg_replace('/[^0-9A-Za-z-]/', '', $o['folio_doc']) . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '_complemento';
-				$nombreXml = $base . '.xml';
-				$nuevos[] = $this->moverSubida($xmlC['tmp'], $carpeta . $nombreXml);
-				$nombrePdf = null;
-				if ($pdfC) {
-					$nombrePdf = $base . '.pdf';
-					$nuevos[] = $this->moverSubida($pdfC['tmp'], $carpeta . $nombrePdf);
+				if ($guardado !== $nombre) {
+					error_log('[Compras_Ordenes::guardarFactura] El UPDATE del complemento no modificó oc_facturas (id_factura=' . (int) $f['id'] . ', id_orden=' . (int) $o['id'] . ', status=' . $status . ')');
+					throw new RuntimeException('El complemento no se registró en la base de datos.');
 				}
-
-				$this->sqlFactura(
-					"INSERT INTO oc_facturas_complementos
-						(id_factura, uuid_factura, uuid_complemento, num_parcialidad, fecha_pago, monto_pagado, saldo_anterior, saldo_insoluto, archivo_xml, archivo_pdf)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-					array((int) $f['id'], $uuidF, $cp['uuid'], $parc > 0 ? $parc : null, $fechaPago, $monto, $saldoAnt, $saldoIns, $nombreXml, $nombrePdf)
-				);
-
-				// Compatibilidad con módulos que aún leen oc_facturas.archivo_complemento: guarda el último complemento cargado
-				$this->sqlFactura(
-					"UPDATE oc_facturas SET archivo_complemento = ?, fecha_carga_complemento = NOW() WHERE id = ?",
-					array($nombreXml, (int) $f['id'])
-				);
-
-				$saldoNuevo = max(0.0, round($res['saldo'] - $monto, 2));
-				$msj = $saldoNuevo <= self::TOLERANCIA_SALDO
-					? 'Complemento cargado. La factura quedó cubierta en su totalidad.'
-					: 'Complemento cargado' . ($parc > 0 ? ' (parcialidad ' . $parc . ')' : '') . '. Saldo pendiente: $' . number_format($saldoNuevo, 2);
+				$msj = 'Complemento de pago cargado correctamente.';
 			}
  
 			$this->_db->commit();
@@ -468,177 +414,9 @@ final class Modelos_Compras_Ordenes extends Modelo {
 			'uuid'        => $uuid,
 			'total'       => round((float) $total, 2),
 			'rfc_emisor'  => $emisor ? $emisor->getAttribute('Rfc') : '',
-			'tipo'        => strtoupper(trim($comp->getAttribute('TipoDeComprobante'))),   // I = ingreso, P = pago
-			'metodo_pago' => strtoupper(trim($comp->getAttribute('MetodoPago'))),         // PUE / PPD
-			'forma_pago'  => trim($comp->getAttribute('FormaPago')),                      // 99 = por definir (PPD)
-			'moneda'      => strtoupper(trim($comp->getAttribute('Moneda'))),
 		);
 	}
  
-	// ¿Se recibió realmente un archivo en este campo de $_FILES? (para campos opcionales)
-	private function hayArchivoSubido($file) {
-		return is_array($file) && isset($file['error']) && !is_array($file['error']) && $file['error'] !== UPLOAD_ERR_NO_FILE;
-	}
-
-	// Carga un XML sin red ni entidades externas
-	private function cargarXml($ruta) {
-		$xml = file_get_contents($ruta);
-		if ($xml === false || $xml === '') throw new InvalidArgumentException('El XML está vacío.');
-		if (stripos($xml, '<!DOCTYPE') !== false || stripos($xml, '<!ENTITY') !== false) throw new InvalidArgumentException('El XML no es un CFDI válido.');
-
-		$previo = libxml_use_internal_errors(true);
-		$dom = new DOMDocument();
-		$ok = $dom->loadXML($xml, LIBXML_NONET | LIBXML_NOBLANKS);
-		libxml_clear_errors();
-		libxml_use_internal_errors($previo);
-		if (!$ok) throw new InvalidArgumentException('El XML está mal formado.');
-		return $dom;
-	}
-
-	/**
-	 * Lee un complemento de pago (CFDI tipo "P", Pagos 1.0 / 2.0).
-	 * Devuelve el UUID del complemento y cada DoctoRelacionado (factura pagada) con su parcialidad y saldos.
-	 */
-	private function leerComplementoPago($ruta) {
-		$dom = $this->cargarXml($ruta);
-		$xp = new DOMXPath($dom);
-
-		$comp = $xp->query('/*[local-name()="Comprobante"]')->item(0);
-		if (!$comp) throw new InvalidArgumentException('El XML no es un CFDI (falta el nodo Comprobante).');
-		if (strtoupper(trim($comp->getAttribute('TipoDeComprobante'))) !== 'P') {
-			throw new InvalidArgumentException('El XML no es un complemento de pago (CFDI de tipo "P").');
-		}
-
-		$timbre = $xp->query('//*[local-name()="TimbreFiscalDigital"]')->item(0);
-		$uuid = $timbre ? strtoupper(trim($timbre->getAttribute('UUID'))) : '';
-		if (!preg_match('/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/', $uuid)) {
-			throw new InvalidArgumentException('El complemento no está timbrado (no se encontró el UUID).');
-		}
-
-		$docs = array();
-		foreach ($xp->query('//*[local-name()="Pago"]') as $pago) {
-			$fecha = $pago->getAttribute('FechaPago');
-			foreach ($xp->query('.//*[local-name()="DoctoRelacionado"]', $pago) as $d) {
-				$imp = $d->getAttribute('ImpPagado');
-				if ($imp === '') $imp = $pago->getAttribute('Monto'); // Pagos 1.0: ImpPagado es opcional con un solo documento
-				$docs[] = array(
-					'uuid'           => strtoupper(trim($d->getAttribute('IdDocumento'))),
-					'fecha_pago'     => $fecha,
-					'imp_pagado'     => is_numeric($imp) ? (float) $imp : 0.0,
-					'parcialidad'    => (int) $d->getAttribute('NumParcialidad'),
-					'saldo_ant'      => $d->getAttribute('ImpSaldoAnt'),
-					'saldo_insoluto' => $d->getAttribute('ImpSaldoInsoluto'),
-				);
-			}
-		}
-		if (!$docs) throw new InvalidArgumentException('El complemento no relaciona ningún documento (DoctoRelacionado).');
-
-		return array('uuid' => $uuid, 'docs' => $docs);
-	}
-
-	/**
-	 * Método de pago (PUE / PPD) de una factura. Si la columna aún está vacía (facturas cargadas antes de este
-	 * cambio) lo lee del XML guardado y lo persiste. $f necesita: id, metodo_pago, archivo_xml. Devuelve null si no se puede determinar.
-	 */
-	private function metodoPagoFactura(array $f) {
-		$m = strtoupper(trim((string) ($f['metodo_pago'] ?? '')));
-		if ($m === 'PUE' || $m === 'PPD') return $m;
-		if (empty($f['id']) || empty($f['archivo_xml'])) return null;
-
-		$ruta = $this->rutaFisicaFacturas() . basename($f['archivo_xml']);
-		if (!is_file($ruta)) return null;
-		try {
-			$c = $this->leerCfdi($ruta);
-		} catch (\Throwable $e) {
-			return null;
-		}
-		if ($c['metodo_pago'] !== 'PUE' && $c['metodo_pago'] !== 'PPD') return null;
-
-		try {
-			$this->sqlFactura(
-				"UPDATE oc_facturas SET metodo_pago = ?, forma_pago = ?, moneda = ? WHERE id = ? AND metodo_pago IS NULL",
-				array($c['metodo_pago'], $c['forma_pago'] !== '' ? $c['forma_pago'] : null, $c['moneda'] !== '' ? $c['moneda'] : null, (int) $f['id'])
-			);
-		} catch (\Throwable $e) {
-			error_log('[Compras_Ordenes::metodoPagoFactura] ' . $e->getMessage());
-		}
-		return $c['metodo_pago'];
-	}
-
-	/**
-	 * Estado de los complementos de una factura (valores sin formato).
-	 * $f necesita: id, uuid_cfdi, monto, metodo_pago, archivo_xml.
-	 * Solo cuentan los complementos que apuntan al UUID vigente de la factura (si se refactura, los anteriores dejan de contar).
-	 * estado: no_aplica (PUE) | pendiente | parcial | completo (PPD) | desconocido
-	 */
-	private function resumenComplementos(array $f) {
-		$metodo = $this->metodoPagoFactura($f);
-		$monto  = round((float) ($f['monto'] ?? 0), 2);
-
-		$filas = array();
-		if (!empty($f['id']) && !empty($f['uuid_cfdi'])) {
-			$filas = $this->sqlFactura(
-				"SELECT id, num_parcialidad, uuid_complemento, fecha_pago, monto_pagado, saldo_anterior, saldo_insoluto,
-						archivo_xml, archivo_pdf, fecha_carga
-				   FROM oc_facturas_complementos
-				  WHERE id_factura = ? AND uuid_factura = ?
-				  ORDER BY COALESCE(num_parcialidad, 9999), id",
-				array((int) $f['id'], strtoupper((string) $f['uuid_cfdi']))
-			)->fetchAll(PDO::FETCH_ASSOC);
-		}
-
-		$pagado = 0.0; $legacy = false; $parcialidades = array();
-		foreach ($filas as $c) {
-			if ($c['monto_pagado'] === null) { $legacy = true; continue; } // complemento cargado antes de este cambio (sin datos del CFDI)
-			$pagado += (float) $c['monto_pagado'];
-			if ((int) $c['num_parcialidad'] > 0) $parcialidades[] = (int) $c['num_parcialidad'];
-		}
-		$pagado = round($pagado, 2);
-		$saldo  = max(0.0, round($monto - $pagado, 2));
-		$completo = ($metodo === 'PPD') && ($legacy || ($monto > 0 && $saldo <= self::TOLERANCIA_SALDO));
-
-		if ($metodo === 'PUE')      $estado = 'no_aplica';
-		elseif ($metodo !== 'PPD')  $estado = 'desconocido';
-		elseif ($completo)          $estado = 'completo';
-		elseif (count($filas) > 0)  $estado = 'parcial';
-		else                        $estado = 'pendiente';
-
-		return array(
-			'metodo_pago' => $metodo, 'monto' => $monto, 'pagado' => $pagado, 'saldo' => $saldo,
-			'completo' => $completo, 'estado' => $estado, 'parcialidades' => $parcialidades, 'filas' => $filas,
-		);
-	}
-
-	// formatearFactura + datos de método de pago y complementos (para get_factura)
-	private function formatearFacturaCompleta(array $f) {
-		$res = $this->resumenComplementos($f);
-		$out = $this->formatearFactura($f);
-
-		$out['metodo_pago']          = $res['metodo_pago'];
-		$out['forma_pago']           = $f['forma_pago'] ?? null;
-		$out['requiere_complemento'] = ($res['metodo_pago'] === 'PPD');
-		$out['complemento_estado']   = $res['estado'];
-		$out['complemento_completo'] = $res['completo'];
-		$out['monto_factura']        = number_format($res['monto'], 2);
-		$out['pagado']               = number_format($res['pagado'], 2);
-		$out['saldo']                = number_format($res['saldo'], 2);
-		$out['complementos']         = array();
-		foreach ($res['filas'] as $c) {
-			$out['complementos'][] = array(
-				'id'             => (int) $c['id'],
-				'parcialidad'    => $c['num_parcialidad'] !== null ? (int) $c['num_parcialidad'] : null,
-				'uuid'           => $c['uuid_complemento'],
-				'fecha_pago'     => $c['fecha_pago'] ? date('d/m/Y', strtotime($c['fecha_pago'])) : null,
-				'monto'          => $c['monto_pagado'] !== null ? number_format((float) $c['monto_pagado'], 2) : null,
-				'saldo_insoluto' => $c['saldo_insoluto'] !== null ? number_format((float) $c['saldo_insoluto'], 2) : null,
-				'xml'            => !empty($c['archivo_xml']),
-				'pdf'            => !empty($c['archivo_pdf']),
-				'fecha_carga'    => $c['fecha_carga'] ? date('d/m/Y H:i', strtotime($c['fecha_carga'])) : null,
-			);
-		}
-		return $out;
-	}
-
 	private function respuestaErrorFactura(\Throwable $th, $contexto, $generico) {
 		if (!($th instanceof InvalidArgumentException)) error_log('[Compras_Ordenes::' . $contexto . '] ' . $th->getMessage());
 		return array('type' => 'error', 'msj' => ($th instanceof InvalidArgumentException) ? $th->getMessage() : $generico);
@@ -803,19 +581,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
                 $ids = array_values($ids);
                 $in = implode(',', array_fill(0, count($ids), '?'));
 
-                // 2a) método de pago (PUE / PPD) y avance de complementos de las facturas de estas órdenes
-                $facturasInfo = array();
-                $rf = $this->ejecutar(
-                    "SELECT f.id_orden, COALESCE(f.id_sub_orden, 0) AS id_sub, f.metodo_pago, f.monto,
-                            (SELECT COUNT(*) FROM oc_facturas_complementos c WHERE c.id_factura = f.id AND c.uuid_factura = f.uuid_cfdi) AS n_comp,
-                            (SELECT COALESCE(SUM(c.monto_pagado), 0) FROM oc_facturas_complementos c WHERE c.id_factura = f.id AND c.uuid_factura = f.uuid_cfdi) AS pagado,
-                            (SELECT COUNT(*) FROM oc_facturas_complementos c WHERE c.id_factura = f.id AND c.uuid_factura = f.uuid_cfdi AND c.monto_pagado IS NULL) AS n_legacy
-                       FROM oc_facturas f
-                      WHERE f.id_orden IN ($in)",
-                    $ids
-                )->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($rf as $r) $facturasInfo[(int) $r['id_orden'] . '|' . (int) $r['id_sub']] = $r;
-
                 // 2) datos de la orden principal
                 $cabeceras = array();
                 $cabs = $this->ejecutar(
@@ -895,20 +660,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
                         $unidades[$k]['monto'] = number_format($u['monto'], 2, '.', ',');
                     }
 
-                    // Factura de ESTA fila (la de la sub-orden; si no tiene, la global anterior a la separación)
-                    $fi = $facturasInfo[$idOrden . '|' . $idSub] ?? ($esSub ? ($facturasInfo[$idOrden . '|0'] ?? null) : null);
-                    $metodoPago = $fi ? strtoupper((string) $fi['metodo_pago']) : '';
-                    $compEstado = '';
-                    $compSaldo = null;
-                    if ($fi && $metodoPago === 'PUE') {
-                        $compEstado = 'no_aplica';
-                    } elseif ($fi && $metodoPago === 'PPD') {
-                        $saldoF = max(0.0, round((float) $fi['monto'] - (float) $fi['pagado'], 2));
-                        $cubierta = ((int) $fi['n_legacy'] > 0) || ((float) $fi['monto'] > 0 && $saldoF <= self::TOLERANCIA_SALDO);
-                        $compEstado = $cubierta ? 'completo' : ((int) $fi['n_comp'] > 0 ? 'parcial' : 'pendiente');
-                        $compSaldo = number_format($saldoF, 2, '.', ',');
-                    }
-
                     $fechaTimeStamp = (new DateTime($f['fecha_creacion']))->getTimestamp();
 
                     $data[] = array(
@@ -931,10 +682,6 @@ final class Modelos_Compras_Ordenes extends Modelo {
                         'centros_costo' => $centrosCosto,
                         'factura_status' => $f['factura_status'] !== null ? (int) $f['factura_status'] : null,
                         'motivo_refacturacion' => (string) $f['motivo_refacturacion'],
-                        'metodo_pago' => $metodoPago !== '' ? $metodoPago : null,   // PUE / PPD (null = sin factura o aún no determinado)
-                        'complemento_estado' => $compEstado,                         // no_aplica | pendiente | parcial | completo
-                        'num_complementos' => $fi ? (int) $fi['n_comp'] : 0,
-                        'saldo_complemento' => $compSaldo,
                         'status' => (int) $f['status_fila'],
                         'status_texto' => $this->textoStatus($f['status_fila']),
                         'revisada_por' => $nombres[(int) $f['id_usuario_revisa']] ?? '',

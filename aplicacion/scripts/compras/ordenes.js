@@ -32,11 +32,6 @@ var content = {
 // Base de los endpoints JSON de órdenes (mismo controlador Compras::ordenes)
 var URL_OC_API = 'https://saevalcas.mx/proveedores/compras/ordenes/';
 
-// Debe coincidir con Modelos_Compras_Ordenes::REQUIERE_PAGO_COMPLEMENTO (backend).
-// true: el complemento solo se carga con la factura pagada; false: también con la factura pendiente de pago.
-// (Aquí solo decide si el menú muestra la opción; el modal y el servidor validan con el valor del backend.)
-var REQUIERE_PAGO_COMPLEMENTO = false;
-
 document.addEventListener('DOMContentLoaded', function () {
     setterData();
     initModalFactura();
@@ -301,6 +296,7 @@ function generarColumnas(step){
         generarCelda('centro_costo'),
         generarCelda('fecha'),
         generarCelda('factura'),
+        generarCelda('complemento'),
     ];
 
     switch (step) {
@@ -471,7 +467,7 @@ function generarCelda(field){
                 field: 'factura_status',
                 title: 'Factura',
                 sortable: false,
-                width: 140,
+                width: 190,
                 textAlign: 'center',
                 template: function(row){
                     // factura_status lo agrega getListado (ver parche); si no viene, no se muestra nada
@@ -485,7 +481,32 @@ function generarCelda(field){
                     };
                     var m = mapa[st] || mapa[0];
                     var tip = (st === 3 && row.motivo_refacturacion) ? ' title=\"' + escapeHtml(row.motivo_refacturacion) + '\"' : '';
-                    return '<span class=\"label ' + m[1] + ' label-inline font-weight-bold\"' + tip + '>' + m[0] + '</span>';
+                    var met = '';
+                    if (row.metodo_pago === 'PUE' || row.metodo_pago === 'PPD') {
+                        met = ' <span class="label ' + (row.metodo_pago === 'PUE' ? 'label-light-primary' : 'label-light-info') + ' label-inline font-weight-bold" title="' + escapeHtml(TXT_METODO[row.metodo_pago]) + '">' + row.metodo_pago + '</span>';
+                    }
+                    return '<span class="label ' + m[1] + ' label-inline font-weight-bold"' + tip + '>' + m[0] + '</span>' + met;
+                }
+            };
+        break;
+        case 'complemento':
+            celda = {
+                field: 'complemento_estado',
+                title: 'Complemento',
+                sortable: false,
+                width: 120,
+                textAlign: 'center',
+                template: function(row){
+                    var mapa = {
+                        no_aplica: ['No aplica', 'label-light-secondary'],
+                        pendiente: ['Pendiente', 'label-light-warning'],
+                        parcial:   ['Parcial', 'label-light-info'],
+                        completo:  ['Completo', 'label-light-success']
+                    };
+                    var m = mapa[row.complemento_estado];
+                    if (!m) return '-';
+                    var tip = (row.complemento_estado === 'parcial' && row.saldo_complemento) ? ' title="Saldo pendiente: $' + escapeHtml(row.saldo_complemento) + '"' : '';
+                    return '<span class="label ' + m[1] + ' label-inline font-weight-bold"' + tip + '>' + m[0] + '</span>';
                 }
             };
         break;
@@ -529,10 +550,10 @@ function accionesOC(row){
     items += '<li class="navi-item"><a href="javascript:;" class="navi-link btn-cargar-factura"' + datos + '>' +
         '<span class="navi-icon"><i class="' + icoFactura + '"></i></span><span class="navi-text">' + txtFactura + '</span></a></li>';
 
-    // Complemento de pago: solo cuando la factura ya está pagada
-    if (!conocido || st === 2 || (!REQUIERE_PAGO_COMPLEMENTO && st === 1)) {
-        items += '<li class="navi-item"><a href="javascript:;" class="navi-link btn-cargar-complemento"' + datos + '>' +
-            '<span class="navi-icon"><i class="las la-file-invoice-dollar"></i></span><span class="navi-text">Cargar complemento de pago</span></a></li>';
+    // Tipo de factura (PUE / PPD) y complementos de pago: disponible en cuanto hay una factura cargada
+    if (!conocido || st === 1 || st === 2) {
+        items += '<li class="navi-item"><a href="javascript:;" class="navi-link btn-complementos"' + datos + '>' +
+            '<span class="navi-icon"><i class="las la-file-invoice-dollar"></i></span><span class="navi-text">Tipo de factura y complementos</span></a></li>';
     }
 
     // PDF de la orden
@@ -552,29 +573,49 @@ function accionesOC(row){
     '</div>';
 }
 
-var facturaModal = { id: null, sub: null, modo: 'factura', puede: false, enviando: false };
+var facturaModal = { id: null, sub: null, puede: false, enviando: false };
+var compModal = { id: null, sub: null, puede: false, enviando: false, pdfObligatorio: false };
 
 // /{id_orden}[/{id_sub_orden}]  (la sub-orden solo aplica a órdenes con folios anidados)
-function sufijoFactura(){
-    var s = parseInt(facturaModal.sub, 10);
-    return encodeURIComponent(facturaModal.id) + (s > 0 ? '/' + s : '');
+function sufijoOC(id, sub){
+    var s = parseInt(sub, 10);
+    return encodeURIComponent(id) + (s > 0 ? '/' + s : '');
+}
+
+var TXT_METODO = { PUE: 'Pago en una sola exhibición', PPD: 'Pago en parcialidades o diferido' };
+
+function badgeMetodo(m){
+    if (m === 'PUE') return '<span class="label label-light-primary label-inline font-weight-bold">PUE</span>';
+    if (m === 'PPD') return '<span class="label label-light-info label-inline font-weight-bold">PPD</span>';
+    return '<span class="label label-light-secondary label-inline font-weight-bold">Sin determinar</span>';
+}
+
+function textoComplemento(f){
+    switch (f.complemento_estado) {
+        case 'no_aplica': return 'No aplica (PUE)';
+        case 'pendiente': return 'Pendiente';
+        case 'parcial':   return 'Parcial · saldo $' + f.saldo;
+        case 'completo':  return 'Completo';
+        default:          return '-';
+    }
 }
 
 function initModalFactura(){
     $(document).on('click', '.btn-cargar-factura', function(){
-        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'factura', $(this).data('sub'));
+        abrirModalFactura($(this).data('id'), $(this).data('folio'), $(this).data('sub'));
     });
-    $(document).on('click', '.btn-cargar-complemento', function(){
-        abrirModalFactura($(this).data('id'), $(this).data('folio'), 'complemento', $(this).data('sub'));
+    $(document).on('click', '.btn-complementos', function(){
+        abrirModalComplementos($(this).data('id'), $(this).data('folio'), $(this).data('sub'));
     });
 
     // Muestra el nombre del archivo elegido en el input de Metronic
-    $(document).on('change', '#modalFacturaOC .custom-file-input', function(){
+    $(document).on('change', '#modalFacturaOC .custom-file-input, #modalComplementosOC .custom-file-input', function(){
         var nombre = this.files && this.files.length ? this.files[0].name : 'Seleccionar archivo...';
         $(this).next('.custom-file-label').text(nombre);
     });
 
     $(document).on('click', '#btnGuardarFacturaOC', enviarFacturaOC);
+    $(document).on('click', '#btnGuardarComplementoOC', enviarComplementoOC);
 }
 
 function alertaFactura(tipo, html){
@@ -584,8 +625,22 @@ function alertaFactura(tipo, html){
       .addClass('alert-' + tipo).html(html);
 }
 
-function abrirModalFactura(id, folio, modo, sub){
-    facturaModal = { id: id, sub: sub || null, modo: modo, puede: false, enviando: false };
+function alertaComp(tipo, html){
+    var $a = $('#complementosOC_alerta');
+    if (!html) { $a.addClass('d-none').empty(); return; }
+    $a.removeClass('d-none alert-success alert-danger alert-warning alert-info')
+      .addClass('alert-' + tipo).html(html);
+}
+
+function reloadDatatable(){
+    if (typeof datatable !== 'undefined' && datatable && typeof datatable.reload === 'function') datatable.reload();
+}
+
+/* ---------------------------------------------------------------------
+   MODAL: FACTURA (PDF + XML)
+   --------------------------------------------------------------------- */
+function abrirModalFactura(id, folio, sub){
+    facturaModal = { id: id, sub: sub || null, puede: false, enviando: false };
 
     $('#facturaOC_form')[0].reset();
     $('#modalFacturaOC .custom-file-label').text('Seleccionar archivo...');
@@ -593,9 +648,7 @@ function abrirModalFactura(id, folio, modo, sub){
     $('#facturaOC_estado').empty();
     alertaFactura(null);
 
-    $('#modalFacturaOCTitulo').text((modo === 'complemento' ? 'Complemento de pago' : 'Factura') + ' · Orden ' + folio);
-    $('.bloque-factura').toggleClass('d-none', modo !== 'factura');
-    $('.bloque-complemento').toggleClass('d-none', modo !== 'complemento');
+    $('#modalFacturaOCTitulo').text('Factura · Orden ' + folio);
     $('#btnGuardarFacturaOC').addClass('d-none').prop('disabled', false).text('Guardar');
     $('#facturaOC_cargando').removeClass('d-none');
     $('#facturaOC_form').addClass('d-none');
@@ -605,7 +658,7 @@ function abrirModalFactura(id, folio, modo, sub){
     $.ajax({
         type: 'GET',
         dataType: 'json',
-        url: URL_OC_API + 'get_factura/' + sufijoFactura(),
+        url: URL_OC_API + 'get_factura/' + sufijoOC(facturaModal.id, facturaModal.sub),
         data: { id_sub_orden: parseInt(facturaModal.sub, 10) > 0 ? parseInt(facturaModal.sub, 10) : '' }, // respaldo por si la ruta no entrega el 3er segmento
         success: function(res){
             $('#facturaOC_cargando').addClass('d-none');
@@ -630,7 +683,6 @@ function pintarEstadoFactura(d){
     }
     var f = d.factura;               // null = aún no hay factura
     var st = f ? parseInt(f.status, 10) : 0;
-    var modo = facturaModal.modo;
 
     var resumen = '<div class="mb-4"><div class="font-weight-bold">' + escapeHtml(d.proveedor) + '</div>' +
         '<div class="text-muted">Total de la orden: <strong>$' + escapeHtml(d.total) + '</strong></div></div>';
@@ -640,12 +692,14 @@ function pintarEstadoFactura(d){
         var etiquetas = {1: ['Pendiente de pago', 'warning'], 2: ['Pagada', 'success'], 3: ['Refacturación solicitada', 'danger']};
         var e = etiquetas[st] || ['-', 'secondary'];
         detalle += '<div class="mb-3"><span class="label label-light-' + e[1] + ' label-inline font-weight-bold mr-2">' + e[0] + '</span>' +
-            (f.num_refacturaciones > 0 ? '<small class="text-muted">Refacturaciones: ' + escapeHtml(f.num_refacturaciones) + '</small>' : '') + '</div>';
+            badgeMetodo(f.metodo_pago) + ' ' +
+            (f.num_refacturaciones > 0 ? '<small class="text-muted ml-2">Refacturaciones: ' + escapeHtml(f.num_refacturaciones) + '</small>' : '') + '</div>';
         detalle += '<ul class="list-unstyled text-muted mb-3">' +
             '<li><i class="las la-file-pdf mr-1"></i>PDF: <strong>' + (f.archivo_pdf ? 'cargado' : '-') + '</strong></li>' +
             '<li><i class="las la-file-code mr-1"></i>XML: <strong>' + (f.archivo_xml ? 'cargado' : '-') + '</strong>' +
                 (f.uuid_cfdi ? ' · UUID ' + escapeHtml(f.uuid_cfdi) : '') + (f.monto !== null && f.monto !== '' ? ' · $' + escapeHtml(f.monto) : '') + '</li>' +
-            '<li><i class="las la-file-invoice-dollar mr-1"></i>Complemento: <strong>' + (f.archivo_complemento ? 'cargado' : 'pendiente') + '</strong></li>' +
+            '<li><i class="las la-receipt mr-1"></i>Método de pago: <strong>' + escapeHtml(TXT_METODO[f.metodo_pago] || 'Sin determinar') + '</strong></li>' +
+            '<li><i class="las la-file-invoice-dollar mr-1"></i>Complemento de pago: <strong>' + escapeHtml(textoComplemento(f)) + '</strong></li>' +
         '</ul>';
         if (st === 3 && f.motivo_refacturacion) {
             detalle += '<div class="alert alert-custom alert-light-danger py-3 mb-3"><div class="alert-text"><strong>Motivo de la refacturación:</strong> ' +
@@ -655,16 +709,12 @@ function pintarEstadoFactura(d){
     $('#facturaOC_estado').html(resumen + detalle);
 
     var puede = false, aviso = '';
-    if (modo === 'factura') {
-        if (st === 0 || st === 3) puede = true;
-        else if (st === 1) aviso = ['info', 'La factura ya fue cargada y está pendiente de pago.'];
-        else if (st === 2) aviso = ['success', 'La factura ya fue pagada. Puedes cargar el complemento de pago desde el menú de acciones.'];
-    } else {
-        var requierePago = d.requiere_pago_complemento !== false; // el backend manda el valor vigente
-        if (st === 2 || (!requierePago && st === 1)) puede = true;
-        else if (st === 3) aviso = ['warning', 'La factura está en refacturación. Primero carga la nueva factura.'];
-        else if (st === 0) aviso = ['warning', 'Primero debes cargar la factura (PDF y XML).'];
-        else aviso = ['warning', 'El complemento de pago se habilita cuando la factura ya fue pagada.'];
+    if (st === 0 || st === 3) puede = true;
+    else if (st === 1) aviso = ['info', 'La factura ya fue cargada y está pendiente de pago.'];
+    else if (st === 2) aviso = ['success', 'La factura ya fue pagada.'];
+
+    if (f && f.requiere_complemento && st !== 3) {
+        aviso = [aviso ? aviso[0] : 'info', (aviso ? aviso[1] + ' ' : '') + 'Es PPD: carga los complementos de pago desde "Tipo de factura y complementos".'];
     }
 
     facturaModal.puede = puede;
@@ -672,8 +722,7 @@ function pintarEstadoFactura(d){
 
     if (puede) {
         $('#facturaOC_form').removeClass('d-none');
-        $('#btnGuardarFacturaOC').removeClass('d-none')
-            .text(modo === 'complemento' ? 'Subir complemento' : (st === 3 ? 'Enviar refacturación' : 'Subir factura'));
+        $('#btnGuardarFacturaOC').removeClass('d-none').text(st === 3 ? 'Enviar refacturación' : 'Subir factura');
     }
 }
 
@@ -694,27 +743,20 @@ function enviarFacturaOC(){
     var fd = new FormData();
     var errores = [];
 
-    if (facturaModal.modo === 'factura') {
-        var pdf = document.getElementById('facturaOC_pdf');
-        var xml = document.getElementById('facturaOC_xml');
-        var e1 = validarArchivo(pdf, ['pdf'], 10, 'Factura PDF');
-        var e2 = validarArchivo(xml, ['xml'], 5, 'Factura XML');
-        if (e1) errores.push(e1);
-        if (e2) errores.push(e2);
-        if (!errores.length) { fd.append('archivo_pdf', pdf.files[0]); fd.append('archivo_xml', xml.files[0]); }
-    } else {
-        var comp = document.getElementById('facturaOC_complemento');
-        var e3 = validarArchivo(comp, ['pdf', 'xml'], 10, 'Complemento de pago');
-        if (e3) errores.push(e3);
-        if (!errores.length) fd.append('archivo_complemento', comp.files[0]);
-    }
+    var pdf = document.getElementById('facturaOC_pdf');
+    var xml = document.getElementById('facturaOC_xml');
+    var e1 = validarArchivo(pdf, ['pdf'], 10, 'Factura PDF');
+    var e2 = validarArchivo(xml, ['xml'], 5, 'Factura XML');
+    if (e1) errores.push(e1);
+    if (e2) errores.push(e2);
+    if (!errores.length) { fd.append('archivo_pdf', pdf.files[0]); fd.append('archivo_xml', xml.files[0]); }
 
     if (errores.length) {
         alertaFactura('danger', errores.map(escapeHtml).join('<br>'));
         return;
     }
 
-    fd.append('tipo', facturaModal.modo);
+    fd.append('tipo', 'factura');
     if (parseInt(facturaModal.sub, 10) > 0) fd.append('id_sub_orden', parseInt(facturaModal.sub, 10)); // respaldo, igual que en la URL
 
     var $btn = $('#btnGuardarFacturaOC');
@@ -726,7 +768,7 @@ function enviarFacturaOC(){
     $.ajax({
         type: 'POST',
         dataType: 'json',
-        url: URL_OC_API + 'guardar_factura/' + sufijoFactura(),
+        url: URL_OC_API + 'guardar_factura/' + sufijoOC(facturaModal.id, facturaModal.sub),
         data: fd,
         processData: false,
         contentType: false,
@@ -744,7 +786,7 @@ function enviarFacturaOC(){
                 alertaFactura('success', escapeHtml(res.msj));
                 $('#facturaOC_form').addClass('d-none');
                 $btn.addClass('d-none');
-                if (typeof datatable !== 'undefined' && datatable && typeof datatable.reload === 'function') datatable.reload();
+                reloadDatatable();
                 setTimeout(function(){ $('#modalFacturaOC').modal('hide'); }, 1400);
             } else {
                 alertaFactura('danger', escapeHtml(res && res.msj ? res.msj : 'No se pudo guardar.'));
@@ -756,6 +798,195 @@ function enviarFacturaOC(){
         },
         complete: function(){
             facturaModal.enviando = false;
+            $btn.prop('disabled', false).removeClass('spinner spinner-white spinner-right');
+            $prog.addClass('d-none');
+        }
+    });
+}
+
+/* ---------------------------------------------------------------------
+   MODAL: TIPO DE FACTURA (PUE / PPD) Y COMPLEMENTOS DE PAGO
+   --------------------------------------------------------------------- */
+function abrirModalComplementos(id, folio, sub){
+    compModal = { id: id, sub: sub || null, puede: false, enviando: false, pdfObligatorio: false };
+
+    $('#complementosOC_form')[0].reset();
+    $('#modalComplementosOC .custom-file-label').text('Seleccionar archivo...');
+    $('#complementosOC_progreso').addClass('d-none').find('.progress-bar').css('width', '0%');
+    $('#modalComplementosOCTitulo').text('Tipo de factura y complementos · Orden ' + folio);
+    $('#modalComplementosOC').modal('show');
+
+    cargarComplementos();
+}
+
+// Consulta la factura y repinta el modal (también se usa después de subir cada complemento)
+function cargarComplementos(callback){
+    $('#complementosOC_resumen, #complementosOC_lista').empty();
+    alertaComp(null);
+    $('#complementosOC_form').addClass('d-none');
+    $('#btnGuardarComplementoOC').addClass('d-none');
+    $('#complementosOC_cargando').removeClass('d-none');
+    compModal.puede = false;
+
+    $.ajax({
+        type: 'GET',
+        dataType: 'json',
+        url: URL_OC_API + 'get_factura/' + sufijoOC(compModal.id, compModal.sub),
+        data: { id_sub_orden: parseInt(compModal.sub, 10) > 0 ? parseInt(compModal.sub, 10) : '' },
+        success: function(res){
+            $('#complementosOC_cargando').addClass('d-none');
+            if (!res || res.type !== 'success') {
+                alertaComp('danger', escapeHtml(res && res.msj ? res.msj : 'No se pudo consultar la factura.'));
+                return;
+            }
+            pintarComplementos(res.data);
+            if (typeof callback === 'function') callback();
+        },
+        error: function(xhr){
+            $('#complementosOC_cargando').addClass('d-none');
+            var msj = (xhr.responseJSON && xhr.responseJSON.msj) || 'No se pudo consultar la factura (' + xhr.status + ').';
+            alertaComp('danger', escapeHtml(msj));
+        }
+    });
+}
+
+function pintarComplementos(d){
+    if (d && d.ordenes) {
+        alertaComp('danger', 'Esta orden tiene folios anidados. Abre el menú desde la fila del folio que vas a consultar.');
+        return;
+    }
+    var f = d.factura;
+    if (!f) {
+        alertaComp('warning', 'Primero debes cargar la factura (PDF y XML).');
+        return;
+    }
+    var st = parseInt(f.status, 10);
+    compModal.pdfObligatorio = !!d.complemento_pdf_obligatorio;
+    $('.req-pdf-comp').toggleClass('d-none', !compModal.pdfObligatorio);
+
+    // ---- Resumen de la factura ----
+    var r = '<div class="mb-4">' +
+        '<div class="font-weight-bold">' + escapeHtml(d.proveedor) + '</div>' +
+        '<div class="mt-2">' + badgeMetodo(f.metodo_pago) +
+            ' <span class="text-muted ml-1">' + escapeHtml(TXT_METODO[f.metodo_pago] || 'No se pudo leer el método de pago del XML') + '</span></div>' +
+        (f.uuid_cfdi ? '<div class="text-muted mt-2 font-size-sm">UUID: ' + escapeHtml(f.uuid_cfdi) + '</div>' : '') +
+    '</div>';
+
+    if (f.requiere_complemento) {
+        r += '<div class="row mb-4">' +
+            '<div class="col-4"><div class="text-muted font-size-sm">Total factura</div><div class="font-weight-bold">$' + escapeHtml(f.monto_factura) + '</div></div>' +
+            '<div class="col-4"><div class="text-muted font-size-sm">Pagado (complementos)</div><div class="font-weight-bold text-success">$' + escapeHtml(f.pagado) + '</div></div>' +
+            '<div class="col-4"><div class="text-muted font-size-sm">Saldo pendiente</div><div class="font-weight-bold text-danger">$' + escapeHtml(f.saldo) + '</div></div>' +
+        '</div>';
+    }
+    $('#complementosOC_resumen').html(r);
+
+    // ---- Complementos ya cargados ----
+    if (f.complementos && f.complementos.length) {
+        var t = '<h6 class="font-weight-bold mb-2">Complementos cargados (' + f.complementos.length + ')</h6>' +
+            '<div class="table-responsive mb-4"><table class="table table-sm table-bordered mb-0"><thead class="thead-light"><tr>' +
+            '<th class="text-center">Parc.</th><th>Fecha de pago</th><th class="text-right">Monto pagado</th><th class="text-right">Saldo insoluto</th><th>UUID</th><th class="text-center">Archivos</th>' +
+            '</tr></thead><tbody>';
+        f.complementos.forEach(function(c){
+            t += '<tr>' +
+                '<td class="text-center">' + (c.parcialidad !== null ? escapeHtml(c.parcialidad) : '-') + '</td>' +
+                '<td>' + escapeHtml(c.fecha_pago || '-') + '</td>' +
+                '<td class="text-right">' + (c.monto !== null ? '$' + escapeHtml(c.monto) : '-') + '</td>' +
+                '<td class="text-right">' + (c.saldo_insoluto !== null ? '$' + escapeHtml(c.saldo_insoluto) : '-') + '</td>' +
+                '<td class="text-truncate" style="max-width:150px;" title="' + escapeHtml(c.uuid || '') + '">' + escapeHtml(c.uuid || '-') + '</td>' +
+                '<td class="text-center">' + (c.xml ? '<span class="label label-light-primary label-inline mr-1">XML</span>' : '') + (c.pdf ? '<span class="label label-light-danger label-inline">PDF</span>' : '') + '</td>' +
+            '</tr>';
+        });
+        t += '</tbody></table></div>';
+        $('#complementosOC_lista').html(t);
+    }
+
+    // ---- ¿Se puede cargar otro complemento? ----
+    var requierePago = d.requiere_pago_complemento !== false; // el backend manda el valor vigente
+    var puede = false, aviso = null;
+    if (f.global) aviso = ['info', 'Esta factura se cargó de forma global (antes de separar la orden). Solo consulta.'];
+    else if (f.metodo_pago === 'PUE') aviso = ['info', 'Esta factura es PUE (pago en una sola exhibición): no requiere complemento de pago.'];
+    else if (f.metodo_pago !== 'PPD') aviso = ['warning', 'No se pudo determinar el método de pago (PUE / PPD) de la factura. Contacta a Compras.'];
+    else if (st === 3) aviso = ['warning', 'La factura está en refacturación. Primero carga la nueva factura.'];
+    else if (f.complemento_completo) aviso = ['success', 'La factura quedó cubierta en su totalidad con los complementos cargados.'];
+    else if (st === 2 || (!requierePago && st === 1)) {
+        puede = true;
+        aviso = ['info', 'Factura PPD: carga un complemento por cada pago recibido (parcialidad). Saldo pendiente: $' + f.saldo + '.'];
+    }
+    else aviso = ['warning', 'El complemento de pago se habilita cuando la factura ya fue pagada.'];
+
+    compModal.puede = puede;
+    if (aviso) alertaComp(aviso[0], escapeHtml(aviso[1]));
+    if (puede) {
+        $('#complementosOC_form').removeClass('d-none');
+        $('#btnGuardarComplementoOC').removeClass('d-none');
+    }
+}
+
+function enviarComplementoOC(){
+    if (compModal.enviando || !compModal.puede) return;
+    alertaComp(null);
+
+    var xml = document.getElementById('complementosOC_xml');
+    var pdf = document.getElementById('complementosOC_pdf');
+    var errores = [];
+    var e1 = validarArchivo(xml, ['xml'], 5, 'XML del complemento');
+    if (e1) errores.push(e1);
+    var hayPdf = pdf.files && pdf.files.length;
+    if (hayPdf || compModal.pdfObligatorio) {
+        var e2 = validarArchivo(pdf, ['pdf'], 10, 'PDF del complemento');
+        if (e2) errores.push(e2);
+    }
+    if (errores.length) {
+        alertaComp('danger', errores.map(escapeHtml).join('<br>'));
+        return;
+    }
+
+    var fd = new FormData();
+    fd.append('tipo', 'complemento');
+    fd.append('archivo_complemento_xml', xml.files[0]);
+    if (hayPdf) fd.append('archivo_complemento_pdf', pdf.files[0]);
+    if (parseInt(compModal.sub, 10) > 0) fd.append('id_sub_orden', parseInt(compModal.sub, 10));
+
+    var $btn = $('#btnGuardarComplementoOC');
+    var $prog = $('#complementosOC_progreso');
+    compModal.enviando = true;
+    $btn.prop('disabled', true).addClass('spinner spinner-white spinner-right');
+    $prog.removeClass('d-none');
+
+    $.ajax({
+        type: 'POST',
+        dataType: 'json',
+        url: URL_OC_API + 'guardar_factura/' + sufijoOC(compModal.id, compModal.sub),
+        data: fd,
+        processData: false,
+        contentType: false,
+        xhr: function(){
+            var xhr = $.ajaxSettings.xhr();
+            if (xhr.upload) {
+                xhr.upload.addEventListener('progress', function(ev){
+                    if (ev.lengthComputable) $prog.find('.progress-bar').css('width', Math.round(ev.loaded / ev.total * 100) + '%');
+                });
+            }
+            return xhr;
+        },
+        success: function(res){
+            if (res && res.type === 'success') {
+                reloadDatatable();
+                $('#complementosOC_form')[0].reset();
+                $('#modalComplementosOC .custom-file-label').text('Seleccionar archivo...');
+                // Repinta (saldo, tabla) y deja el mensaje de éxito; si aún hay saldo se puede cargar la siguiente parcialidad
+                cargarComplementos(function(){ alertaComp('success', escapeHtml(res.msj)); });
+            } else {
+                alertaComp('danger', escapeHtml(res && res.msj ? res.msj : 'No se pudo guardar.'));
+            }
+        },
+        error: function(xhr){
+            var msj = (xhr.responseJSON && xhr.responseJSON.msj) || 'Error al subir los archivos (' + xhr.status + ').';
+            alertaComp('danger', escapeHtml(msj));
+        },
+        complete: function(){
+            compModal.enviando = false;
             $btn.prop('disabled', false).removeClass('spinner spinner-white spinner-right');
             $prog.addClass('d-none');
         }

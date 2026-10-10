@@ -74,7 +74,7 @@ $indicadoresArr = json_decode($indicadores, true);
     </div>
 </div>
 
-<!-- Modal: carga de factura (PDF + XML) y complemento de pago -->
+<!-- Modal: carga de factura (PDF + XML) -->
 <div class="modal fade" id="modalFacturaOC" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
         <div class="modal-content">
@@ -107,17 +107,7 @@ $indicadoresArr = json_decode($indicadores, true);
                                 <input type="file" class="custom-file-input" id="facturaOC_xml" accept=".xml,text/xml,application/xml">
                                 <label class="custom-file-label" for="facturaOC_xml">Seleccionar archivo...</label>
                             </div>
-                            <span class="form-text text-muted">Formato XML, máximo 5 MB. Se leerán el UUID y el total del CFDI.</span>
-                        </div>
-                    </div>
-                    <div class="bloque-complemento d-none">
-                        <div class="form-group">
-                            <label class="font-weight-bold">Complemento de pago <span class="text-danger">*</span></label>
-                            <div class="custom-file">
-                                <input type="file" class="custom-file-input" id="facturaOC_complemento" accept=".pdf,.xml,application/pdf,text/xml,application/xml">
-                                <label class="custom-file-label" for="facturaOC_complemento">Seleccionar archivo...</label>
-                            </div>
-                            <span class="form-text text-muted">PDF o XML, máximo 10 MB.</span>
+                            <span class="form-text text-muted">Formato XML, máximo 5 MB. Se leerán el UUID, el total y el método de pago (PUE / PPD) del CFDI.</span>
                         </div>
                     </div>
                 </form>
@@ -129,6 +119,55 @@ $indicadoresArr = json_decode($indicadores, true);
             <div class="modal-footer">
                 <button type="button" class="btn btn-light-primary font-weight-bold" data-dismiss="modal">Cerrar</button>
                 <button type="button" class="btn btn-primary font-weight-bold d-none" id="btnGuardarFacturaOC">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Modal: tipo de factura (PUE / PPD) y complementos de pago (uno por cada pago / parcialidad) -->
+<div class="modal fade" id="modalComplementosOC" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalComplementosOCTitulo">Complementos de pago</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+                    <i aria-hidden="true" class="ki ki-close"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="complementosOC_cargando" class="text-center py-10">
+                    <span class="spinner spinner-primary spinner-lg"></span>
+                </div>
+                <div id="complementosOC_resumen"></div>
+                <div id="complementosOC_lista"></div>
+                <div id="complementosOC_alerta" class="alert d-none" role="alert"></div>
+
+                <form id="complementosOC_form" class="d-none" onsubmit="return false;" enctype="multipart/form-data">
+                    <h6 class="font-weight-bold mb-3">Cargar complemento de pago</h6>
+                    <div class="form-group">
+                        <label class="font-weight-bold">Complemento XML (CFDI de pago) <span class="text-danger">*</span></label>
+                        <div class="custom-file">
+                            <input type="file" class="custom-file-input" id="complementosOC_xml" accept=".xml,text/xml,application/xml">
+                            <label class="custom-file-label" for="complementosOC_xml">Seleccionar archivo...</label>
+                        </div>
+                        <span class="form-text text-muted">Formato XML, máximo 5 MB. Debe relacionar el UUID de esta factura; se leen la parcialidad, el monto pagado y el saldo.</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="font-weight-bold">Complemento PDF <span class="text-danger req-pdf-comp d-none">*</span></label>
+                        <div class="custom-file">
+                            <input type="file" class="custom-file-input" id="complementosOC_pdf" accept=".pdf,application/pdf">
+                            <label class="custom-file-label" for="complementosOC_pdf">Seleccionar archivo...</label>
+                        </div>
+                        <span class="form-text text-muted">Formato PDF, máximo 10 MB.</span>
+                    </div>
+                </form>
+
+                <div id="complementosOC_progreso" class="progress d-none mt-4">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light-primary font-weight-bold" data-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary font-weight-bold d-none" id="btnGuardarComplementoOC">Subir complemento</button>
             </div>
         </div>
     </div>
