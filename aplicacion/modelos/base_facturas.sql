@@ -36,10 +36,10 @@ CREATE TABLE oc_facturas_complementos (
 INSERT INTO oc_facturas_complementos (id_factura, uuid_factura, archivo_xml, archivo_pdf, fecha_carga)
 SELECT f.id, UPPER(f.uuid_cfdi),
        CASE WHEN LOWER(f.archivo_complemento) LIKE '%.xml' THEN f.archivo_complemento END,
-       CASE WHEN LOWER(f.archivo_complemento) LIKE '%.pdf' THEN f.archivo_complemento END,
+       CASE WHEN LOWER(f.archivo_complemento) L IKE '%.pdf' THEN f.archivo_complemento END,
        COALESCE(f.fecha_carga_complemento, NOW())
   FROM oc_facturas f
  WHERE f.archivo_complemento IS NOT NULL AND f.archivo_complemento <> '' AND f.uuid_cfdi IS NOT NULL;
 
 -- Las facturas ya cargadas quedan con metodo_pago = NULL: el sistema lo lee del XML guardado
--- la primera vez que se abre la factura / sus complementos y lo persiste (no hace falta script).
+-- la primera vez que se abre la factura / sus complementos y lo persiste (no hace falta script). 
